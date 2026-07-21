@@ -16,7 +16,9 @@ FAIL=0; TMP="$TODO.vg.$$"
 : > "$TMP"
 while IFS= read -r line || [ -n "$line" ]; do
   if printf '%s' "$line" | grep -qE '^- \[x\].*verify:[[:space:]]*`[^`]+`'; then
-    cmd="$(printf '%s' "$line" | sed -E 's/.*verify:[[:space:]]*`([^`]+)`.*/\1/')"
+    # extract the FIRST verify block via python (sed's greedy `.*verify:` grabbed the LAST block,
+    # letting an appended decoy `verify: `true`` override a real failing command).
+    cmd="$(printf '%s' "$line" | python3 -c 'import sys,re; m=re.search(r"verify:\s*`([^`]+)`", sys.stdin.read()); sys.stdout.write(m.group(1) if m else "")')"
     if ! bash -c "$cmd" >/dev/null 2>&1; then
       FAIL=1
       short="$(printf '%s' "$line" | sed -E 's/^(- \[x\][^:]{0,50}).*/\1/')"

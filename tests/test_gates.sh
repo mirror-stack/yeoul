@@ -77,6 +77,11 @@ printf -- '- [x] lie: claimed done but verify fails. verify: `false`\n- [x] hone
 "$BIN/verify-gate" "$T2" --revert >/dev/null 2>&1; assert "verify-gate flags a failing checked item" 1 $?
 grep -q '^- \[ \] lie' "$T2" && echo "  ✓ harness reverted the false [x] → [ ]" || { echo "  ✗ false [x] not reverted"; FAIL=1; }
 grep -q '^- \[x\] honest' "$T2" && echo "  ✓ genuine [x] left intact" || { echo "  ✗ genuine [x] wrongly reverted"; FAIL=1; }
+# decoy: an appended `verify: `true`` must NOT override a real failing first command (greedy-extraction bug)
+T3="$WS/t3.md"
+printf -- '- [x] decoy. verify: `false` verify: `true`\n' > "$T3"
+"$BIN/verify-gate" "$T3" --revert >/dev/null 2>&1
+grep -q '^- \[ \] decoy' "$T3" && echo "  ✓ decoy double-verify reverted (first block wins)" || { echo "  ✗ decoy passed (greedy bug)"; FAIL=1; }
 
 echo
 if [ "$FAIL" -eq 0 ]; then echo "✅ all gate tests passed"; else echo "⛔ gate tests FAILED"; fi
