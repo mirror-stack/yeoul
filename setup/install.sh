@@ -39,7 +39,15 @@ else
   echo "2) mirror-stack: SKIPPED (--no-mirror-stack). Sealing will be a no-op fallback."
 fi
 
-echo "3) MCP client config — merge this into your mcpServers (Claude Desktop/Code):"
+echo "3) yeoul-mcp (gate-enforcing MCP tools over the bin/ scripts)"
+if command -v pip >/dev/null 2>&1; then
+  echo "   installing yeoul-mcp ..."
+  pip install "$REPO/mcp" || echo "   ⚠️ pip install failed — install manually: pip install $REPO/mcp"
+else
+  echo "   ⚠️ pip not found. Install manually: pip install $REPO/mcp"
+fi
+
+echo "4) MCP client config — merge this into your mcpServers (Claude Desktop/Code):"
 echo
 sed 's/^/     /' "$SCRIPT_DIR/mcp-servers.json"
 echo

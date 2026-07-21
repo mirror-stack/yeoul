@@ -12,6 +12,39 @@ primitive answers *"is this claim honest?"*; Yeoul answers *"how do I run a disc
 
 > ⚠️ **Work in progress — not yet released.** This README is a positioning draft, not a launch page.
 
+## Install
+
+```bash
+git clone https://github.com/mirror-stack/yeoul
+cd yeoul
+export PATH="$PWD/bin:$PATH"     # the CLI: yeoul-new, arc-open, arc-close, ralph, status, …
+setup/install.sh                 # installs mirror-stack (sealing primitive) + yeoul-mcp, prints MCP config
+```
+
+Register both MCP servers with your client (Claude Desktop/Code — merge `setup/mcp-servers.json`):
+
+```json
+{ "mcpServers": {
+    "mirror-stack": { "command": "mirror-stack-mcp" },
+    "yeoul":        { "command": "yeoul-mcp" }
+} }
+```
+
+mirror-stack is optional — without it, sealing degrades to a no-op and everything else still runs
+(`setup/install.sh --no-mirror-stack`).
+
+## Quickstart
+
+Try it with no agent and no compute — just the structure and the gates:
+
+```bash
+examples/demo.sh       # full lifecycle: scaffold → arc → 2-phase KILL close → dev handoff → verify-gate
+tests/test_gates.sh    # assertion-based smoke test of every gate
+```
+
+New to the method? Read [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md), then paste
+[`docs/BOOTSTRAP_PROMPT.md`](docs/BOOTSTRAP_PROMPT.md) into your agent to configure the practice.
+
 ## What it is (and is not)
 
 - **Is**: a small set of shell scripts + templates + a method for opening a multi-role deliberation arc,

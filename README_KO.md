@@ -11,6 +11,39 @@
 
 > ⚠️ **진행 중 — 아직 정식 릴리스 아님.** 이 문서는 포지셔닝 초안이지 출시 페이지가 아닙니다.
 
+## 설치
+
+```bash
+git clone https://github.com/mirror-stack/yeoul
+cd yeoul
+export PATH="$PWD/bin:$PATH"     # CLI: yeoul-new, arc-open, arc-close, ralph, status, …
+setup/install.sh                 # mirror-stack(봉인 프리미티브) + yeoul-mcp 설치 + MCP 설정 출력
+```
+
+두 MCP 서버를 클라이언트에 등록(Claude Desktop/Code — `setup/mcp-servers.json` 병합):
+
+```json
+{ "mcpServers": {
+    "mirror-stack": { "command": "mirror-stack-mcp" },
+    "yeoul":        { "command": "yeoul-mcp" }
+} }
+```
+
+mirror-stack은 선택입니다 — 없으면 봉인이 no-op으로 완화되고 나머지는 그대로 돕니다
+(`setup/install.sh --no-mirror-stack`).
+
+## 빠른 시작
+
+에이전트도 연산도 없이 — 구조와 게이트만 돌려봅니다:
+
+```bash
+examples/demo.sh       # 전 라이프사이클: 스캐폴드 → 아크 → 2단계 KILL 종결 → 개발 핸드오프 → 검증 게이트
+tests/test_gates.sh    # 모든 게이트의 단언 기반 스모크 테스트
+```
+
+방법론이 처음이면 [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md)를 읽고,
+[`docs/BOOTSTRAP_PROMPT.md`](docs/BOOTSTRAP_PROMPT.md)를 에이전트에 붙여 실천을 구성하세요.
+
 ## 무엇인가 (그리고 아닌가)
 
 - **맞다**: 다역할 심의 아크를 열고, 폭주 가드 아래 수렴을 판정하고, 정직하게 종결하고(빈칸 거부 + KILL 방어
