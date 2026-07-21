@@ -142,7 +142,8 @@ if [ "$IS_KILL" = "yes" ]; then
   while IFS= read -r vline; do
     case "$vline" in "- **"*"**:"*) ;; *) continue ;; esac
     vlabel="$(printf '%s' "$vline" | sed -E 's/^- \*\*([^*]+)\*\*.*/\1/')"
-    vans="$(printf '%s' "$vline" | sed -E 's/^- \*\*[^*]+\*\*:[[:space:]]*//; s/[[:space:]]*←.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')"
+    # answer extraction via python (Unicode-safe — sed's multibyte ← match is locale-fragile)
+    vans="$(printf '%s' "$vline" | python3 -c 'import sys,re; s=sys.stdin.read(); s=re.sub(r"^- \*\*[^*]+\*\*:\s*","",s); s=re.sub(r"\s*←.*$","",s); sys.stdout.write(s.strip())')"
     vlow="$(printf '%s' "$vans" | tr '[:upper:]' '[:lower:]')"
     case "$vlow" in ""|y|yes|ok|okay|na|n/a|done|.|-|x|pass|true|good|yep|sure|n)
       echo "⛔ seal refused: KILL-defense '$vlabel' answer too trivial: '$vans'"; exit 5 ;;

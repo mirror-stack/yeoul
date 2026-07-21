@@ -25,9 +25,10 @@ ARC="$(ls -d "$WS"/arcs/*_g)"
 SUM="$(ls "$ARC"/_SUMMARY_*.md)"
 sedi 's/- (fill in)/- concrete conclusion here/' "$SUM"
 "$BIN/arc-close" "$ARC" "KILL — test" --stop=falsified >/dev/null 2>&1; assert "KILL-defense refuse (unfilled)" 5 $?
-# trivial evasion must be rejected (new minimal-substance check)
-sedi 's/(unfilled)[^$]*/yes/' "$SUM"
-"$BIN/arc-close" "$ARC" "KILL — test" --stop=falsified >/dev/null 2>&1; assert "trivial 'yes' answers refused" 5 $?
+# trivial evasion must be rejected (minimal-substance check) — keep the "← hint" so the
+# answer-extraction (Unicode ← strip) is actually exercised, not eaten by the test.
+sedi 's/(unfilled)/yes/g' "$SUM"
+"$BIN/arc-close" "$ARC" "KILL — test" --stop=falsified >/dev/null 2>&1; assert "trivial 'yes' answers refused (hint preserved)" 5 $?
 # per-field-valid answers seal
 sedi 's/^- \*\*Anchor.*/- **Anchor (positive control) reproduced**: anchor reproduced over 3 runs/' "$SUM"
 sedi 's/^- \*\*Independent.*/- **Independent angles converged**: 2 independent angles agreed/' "$SUM"
