@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# arc-ticket <arc_dir> <role> <slug> [ref]      (instruction body on stdin, else a default)
+#   Relay-only. Issues a standard ticket with the deliberation rules baked in.
+#   The work role answers *in its own ticket* (status: open→answered) — never edits the thread or asks the user directly.
+
+ARC_DIR="${1:-}"; ROLE="${2:-}"; SLUG="${3:-}"; REF="${4:-}"
+if [ -z "$ARC_DIR" ] || [ -z "$ROLE" ] || [ -z "$SLUG" ]; then
+  echo "usage: arc-ticket <arc_dir> <role> <slug> [ref]   (body on stdin, optional)"; exit 1
+fi
+[ -d "$ARC_DIR" ] || { echo "arc dir not found: $ARC_DIR"; exit 1; }
+ARC_DIR="$(cd "$ARC_DIR" && pwd)"
+ARC_FILE="$(ls "$ARC_DIR"/ARC/*.md 2>/dev/null | head -1)"
+ROLES="$(grep -m1 '^roles:' "$ARC_FILE" 2>/dev/null | sed 's/^roles:[[:space:]]*//; s/"//g')"
+echo " $ROLES " | grep -q " $ROLE " || { echo "'$ROLE' is not a work role of this arc ($ROLES)"; exit 1; }
+
+INBOX="$ARC_DIR/tickets/$ROLE"; mkdir -p "$INBOX"
+N=$(find "$INBOX" -maxdepth 1 -name '[0-9]*.md' 2>/dev/null | wc -l | tr -d ' ')
+NEXT=$(printf '%04d' $((N+1)))
+RELAY="$(awk -F'\t' '$1=="relay"{print $2; exit}' "$ARC_DIR/assignments.tsv" 2>/dev/null || true)"; RELAY="${RELAY:-relay}"
+CREATED="$(date -Iseconds 2>/dev/null || date)"
+
+BODY="(instruction: what + why + verification request — at least one rebuttal, falsifiable)"
+[ ! -t 0 ] && { piped="$(cat)"; [ -n "$piped" ] && BODY="$piped"; }
+
+TICKET="$INBOX/${NEXT}_${SLUG}.md"
+cat > "$TICKET" <<EOF
+---
+ticket: ${NEXT}
+to: ${ROLE}
+from: ${RELAY}
+ref: ${REF}
+created: ${CREATED}
+status: open
+---
+${BODY}
+
+— — — deliberation rules (required when handling this ticket) — — —
+• Answer *in this ticket* + set the top \`status: open → answered\`. **Do not edit the deliberation thread** (relay-only).
+• ★**Do not open a question prompt to the user.** If unclear, ask the relay via a new ticket (single channel).
+• No sycophantic agreement · evidence (numbers/code/repro) first · at least one rebuttal/blind-spot · self-critique your own proposal · bound the scope of conclusions.
+EOF
+echo "issued: $TICKET  (to=$ROLE from=$RELAY ref='${REF}' status=open)"

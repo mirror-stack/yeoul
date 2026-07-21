@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# yeoul-new <name> [--topic='...'] [--roles='analysis impl repro'] [--backend=a|b|both] [--no-arc]
+#   Creates ./projects/<name>/{design,dev}/ + design/spec.md, and (by default) opens a deliberation arc
+#   under design/arcs/ via arc-open. --no-arc: scaffold only.
+#   Projects root is ./projects by default; override with YEOUL_PROJECTS.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECTS_DIR="${YEOUL_PROJECTS:-./projects}"
+
+NAME="${1:-}"; TOPIC=""; ROLES="analysis impl repro"; BACKEND="both"; MAKE_ARC=1
+for arg in "${@:2}"; do
+  case "$arg" in
+    --topic=*)   TOPIC="${arg#--topic=}" ;;
+    --roles=*)   ROLES="${arg#--roles=}" ;;
+    --backend=*) BACKEND="${arg#--backend=}" ;;
+    --no-arc)    MAKE_ARC=0 ;;
+  esac
+done
+if [ -z "$NAME" ]; then
+  echo "usage: yeoul-new <name> [--topic='...'] [--roles='analysis impl repro'] [--backend=a|b|both] [--no-arc]"
+  exit 1
+fi
+[ -z "$TOPIC" ] && TOPIC="$NAME"
+
+PROJ_DIR="$PROJECTS_DIR/$NAME"
+if [ -e "$PROJ_DIR" ]; then echo "already exists: $PROJ_DIR"; exit 1; fi
+DESIGN_DIR="$PROJ_DIR/design"
+mkdir -p "$DESIGN_DIR/arcs" "$PROJ_DIR/dev"
+
+TEMPLATE="$SCRIPT_DIR/../templates/spec.md"
+if [ -f "$TEMPLATE" ]; then
+  sed "s/<topic>/$TOPIC/g" "$TEMPLATE" > "$DESIGN_DIR/spec.md"
+else
+  echo "# 📐 Spec — $TOPIC" > "$DESIGN_DIR/spec.md"
+fi
+
+cat > "$PROJ_DIR/README.md" << MDEOF
+# $NAME
+
+> Yeoul incubator project. Topic: $TOPIC
+
+- design (incubation): [design/](design/) — spec · deliberation arcs · summaries
+- dev: [dev/](dev/)
+- when mature: \`yeoul-graduate $NAME\`.
+MDEOF
+
+echo "┌─ Yeoul project created ─┐"
+echo "  project: $NAME"
+echo "  dirs   : $PROJ_DIR/{design,dev}"
+echo "  spec   : $DESIGN_DIR/spec.md"
+
+if [ "$MAKE_ARC" -eq 1 ]; then
+  SLUG="$(echo "$NAME" | tr ' ' '_')"
+  echo
+  bash "$SCRIPT_DIR/arc-open" "$SLUG" --topic="$TOPIC" --roles="$ROLES" --backend="$BACKEND" \
+    --arcs-dir="$DESIGN_DIR/arcs"
+fi

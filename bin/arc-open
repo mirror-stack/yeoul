@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# arc-open <slug> [--topic='...'] [--roles='analysis impl repro'] [--backend=a|b|both] [--arcs-dir=<path>] [--relay=<name>]
+#   Creates <arcs-dir>/<ts_slug>/ with the full arc layout:
+#     ARC/<arc>.md (deliberation thread) + tickets/<role>/ + STATE.md + ROSTER.md + JOIN_PROMPTS.md + 0001_spec.md
+#   Generic file-based deliberation engine. Runtime-agnostic. Callers pass --arcs-dir to place the arc.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+SLUG="${1:-}"; TOPIC=""; ROLES="analysis impl repro"; BACKEND="both"; ARCS_DIR=""; RELAY="orchestrator"
+for arg in "${@:2}"; do
+  case "$arg" in
+    --topic=*)    TOPIC="${arg#--topic=}" ;;
+    --roles=*)    ROLES="${arg#--roles=}" ;;
+    --backend=*)  BACKEND="${arg#--backend=}" ;;
+    --arcs-dir=*) ARCS_DIR="${arg#--arcs-dir=}" ;;
+    --relay=*)    RELAY="${arg#--relay=}" ;;
+  esac
+done
+if [ -z "$SLUG" ]; then
+  echo "usage: arc-open <slug> [--topic='...'] [--roles='analysis impl repro'] [--backend=a|b|both] [--arcs-dir=<path>] [--relay=<name>]"
+  exit 1
+fi
+[ -z "$TOPIC" ] && TOPIC="$SLUG"
+[ -z "$ARCS_DIR" ] && ARCS_DIR="./arcs"
+case "$BACKEND" in a|b|both) ;; *) echo "backend must be a|b|both"; exit 1 ;; esac
+
+# ── Gate-1: prior-art / closed-question check (optional; warn-only, non-blocking; skipped if no registry) ──
+REGISTRY="${YEOUL_CLOSED_REGISTRY:-$SCRIPT_DIR/../registry/closed_questions.jsonl}"
+if command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/closed_check.py" ] && [ -f "$REGISTRY" ]; then
+  G1WARN="$(python3 "$SCRIPT_DIR/closed_check.py" "$TOPIC" "$REGISTRY" 2>/dev/null || true)"
+  if [ -n "$G1WARN" ]; then
+    echo "── ⚠️ Gate-1 closed-question match ──"
+    echo "$G1WARN"
+    echo "(possible re-litigation — if no_reopen, do not reopen. Proceeds anyway if you continue.)"
+    echo
+  fi
+fi
+
+# Portable timestamp
+TS=$(date +"%Y%m%d_%H%M%S")
+TS_ISO=$(date -Iseconds 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S")
+TODAY=$(date +%Y-%m-%d)
+ARC="${TS}_${SLUG}"
+ARC_DIR="$ARCS_DIR/$ARC"
+mkdir -p "$ARC_DIR/ARC"
+for r in $ROLES; do mkdir -p "$ARC_DIR/tickets/$r"; done
+
+# ── role assignment ledger (relay = auto-assigned to creator, work roles = unassigned) ──
+ASSIGN="$ARC_DIR/assignments.tsv"
+printf 'relay\t%s\t%s\n' "$RELAY" "$TS_ISO" > "$ASSIGN"
+
+case "$BACKEND" in
+  a)    BACKEND_DESC="in-session subagents (spawn via your agent runtime)" ;;
+  b)    BACKEND_DESC="file-relay (external agent tabs + watcher/tickets)" ;;
+  both) BACKEND_DESC="A for a fast draft, then B for external cross-check" ;;
+esac
+
+# ── deliberation thread ──
+ARC_FILE="$ARC_DIR/ARC/${ARC}.md"
+cat > "$ARC_FILE" << MDEOF
+---
+session_id: "${ARC}"
+title: "${TOPIC}"
+status: "In-Progress"
+backend: "${BACKEND}"
+roles: "${ROLES}"
+created_at: "${TS_ISO}"
+last_updated: "${TODAY}"
+---
+
+# 🤝 Deliberation: ${TOPIC}
+
+> ## 🚨 Read before responding (deliberation rules)
+> 1. No praise-first — facts and numbers first. 2. No ungrounded agreement — reproduce the claim yourself first.
+> 3. At least one rebuttal/blind-spot — if none, state "no rebuttal — verified by [method]". 4. Self-critique your own proposals too.
+> 5. Before concluding, run the 7-check (prior criteria / fair baseline / no gaming / both directions / independent repro / scope / self-doubt).
+> → Non-compliant responses are invalid. See docs/METHODOLOGY.md.
+
+> **Opened**: ${TS} · **Backend**: ${BACKEND_DESC}
+> **Status**: 🟡 \`In-Progress\` (awaiting first post)
+
+---
+
+<!-- TURN seq=0 from=${RELAY} to=relay round=1 status=posted ts=${TS_ISO} -->
+## 📋 Motion
+
+**Topic under review**: ${TOPIC}
+
+→ Spec is in [../0001_spec.md](../0001_spec.md). Each role posts per the rules — rebuttal/refutation first.
+
+<!-- /TURN -->
+MDEOF
+
+# ── spec placeholder (caller fills) ──
+cat > "$ARC_DIR/0001_spec.md" << MDEOF
+# 📐 Spec — ${TOPIC}
+
+> The caller (e.g. the specification interview) fills this in. Blank = undecided.
+
+- **Topic**: ${TOPIC}
+- **One-line framing**:
+- **Why now**:
+- **Goal**:
+- **Prior art (Gate-1)** ★early (delta: wedge / footnote / none — if none, consider rejecting):
+- **Success condition**:
+- **Kill-condition (falsifier)** ★no falsifier = untestable:
+- **Constraints**:
+- **Roles**: ${ROLES}
+MDEOF
+
+# ── STATE ──
+cat > "$ARC_DIR/STATE.md" << MDEOF
+# 🛰️ Arc state — ${ARC}
+
+> Updated ${TODAY}. ⚠️ Backend-B watchers die when the session ends → restart on resume.
+
+## Identity
+- **Topic**: ${TOPIC}
+- **Backend**: ${BACKEND_DESC}
+- **Deliberation**: [ARC/${ARC}.md](ARC/${ARC}.md)
+- **Spec**: [0001_spec.md](0001_spec.md)
+- **Relay (auto-assigned to creator)**: ${RELAY}
+- **Work roles**: ${ROLES}  (assignments: assignments.tsv · see [ROSTER.md](ROSTER.md))
+
+## Loop
+collect round → summarize → convergence judgment (consensus / kill-hit / new axis) → if unconverged: strengthen spec, next round.
+
+★Every round summary MUST include 3 lines (drift/sycophancy guards):
+- **Re-anchor**: is this round still consistent with the spec's success-condition and kill-condition? (one line — deliberation-style tasks drift 76–89%)
+- **Flip log**: who changed position, and which direction (right→wrong / wrong→right)? (sycophantic flips are 57–77% right→wrong)
+- **Consensus quality**: unanimity with no initial disagreement = ⚠️ alarm (suspected sycophancy, not a convergence credit) · overturning a wrong consensus = credit
+
+## Close
+\`\`\`bash
+bin/arc-close "<arc_dir>" "<one-line verdict>" [--stop=converged|falsified|no-progress]
+# 1st run drafts _SUMMARY (no seal) → fill the blanks (+ KILL-defense 5-check if falsified) → re-run to gate-check & archive
+\`\`\`
+MDEOF
+
+# ── ROSTER ──
+{
+  echo "# 📋 Roster — ${ARC}"
+  echo
+  echo "> Backend: ${BACKEND_DESC} · Relay (auto-assigned to creator): **${RELAY}**"
+  echo "> Assignments tracked in assignments.tsv."
+  echo
+  echo "| Role | Duty | Assignee | inbox |"
+  echo "|---|---|---|---|"
+  echo "| relay | dispatcher · synthesis · sole author of the thread | **${RELAY}** (auto) | whole thread |"
+  for r in $ROLES; do
+    case "$r" in
+      analysis) duty="red-team (rebuttal · weaknesses)" ;;
+      impl)     duty="implementation · code · resources" ;;
+      repro)    duty="reproduction · measurement · evidence" ;;
+      *)        duty="-" ;;
+    esac
+    echo "| ${r} | ${duty} | _unassigned_ | \`tickets/${r}/\` |"
+  done
+  echo
+  echo "> 🧬 Model heterogeneity: spawn/assign the analysis (red-team) role on a *different model* than the relay"
+  echo "> where possible (same-model debate suffers correlated errors — weakens rebuttal). Backend A: use your runtime's model option; B: vary the external tab's model."
+  echo
+  echo "> On close: \`arc-close ${ARC} 'verdict'\` → 1st drafts → fill blanks & KILL-defense → re-run → archived to arcs/_archive/."
+} > "$ARC_DIR/ROSTER.md"
+
+# ── JOIN_PROMPTS (A = agent prompt / B = paste into external tab; same body) ──
+{
+  echo "# 🔗 Join prompts — ${ARC}"
+  echo
+  echo "> A (subagent): use as an agent prompt. B (file-relay): paste into an external agent session/tab."
+  echo "> Each role's *first action* = attach. Rules are injected by the attach step and the issued tickets."
+  echo
+  for r in $ROLES; do
+    echo "## ${r}"
+    echo '```'
+    echo "You are the '${r}' role of deliberation arc ${ARC}. Topic: ${TOPIC}."
+    echo ""
+    echo "★ First action — run ONLY this line and act on its output (no improvisation):"
+    echo "   bin/arc-attach \"${ARC_DIR}\" ${r}"
+    echo "   → it assigns your role, starts the watcher, and dictates your ticket order."
+    echo ""
+    echo "[invariant] Do NOT edit the deliberation thread directly (relay-only). Your output = answer in tickets/${r}/ + status open→answered."
+    echo "       No sycophantic agreement · evidence first · at least one rebuttal · self-critique."
+    echo '```'
+    echo
+  done
+} > "$ARC_DIR/JOIN_PROMPTS.md"
+
+echo "┌─ Deliberation arc opened ─┐"
+echo "  arc     : $ARC"
+echo "  dir     : $ARC_DIR"
+echo "  backend : $BACKEND ($BACKEND_DESC)"
+echo "  relay   : $RELAY  (auto-assigned to creator)"
+echo "  roles   : $ROLES  (all unassigned — join to fill)"
+echo "  spec    : $ARC_DIR/0001_spec.md  ← caller fills"
+echo "  join    : $ARC_DIR/JOIN_PROMPTS.md"

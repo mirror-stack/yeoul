@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# arc-join <arc_dir> <role> [assignee]
+#   Assign a work role (relay excluded — auto-assigned to creator). Refuses if already assigned or unknown.
+
+ARC_DIR="${1:-}"; ROLE="${2:-}"; ASSIGNEE="${3:-agent}"
+if [ -z "$ARC_DIR" ] || [ -z "$ROLE" ]; then
+  echo "usage: arc-join <arc_dir> <role> [assignee]"; exit 1
+fi
+[ -d "$ARC_DIR" ] || { echo "arc dir not found: $ARC_DIR"; exit 1; }
+if [ "$ROLE" = "relay" ]; then echo "relay cannot be joined (auto-assigned to creator)."; exit 1; fi
+
+ARC_FILE="$(ls "$ARC_DIR"/ARC/*.md 2>/dev/null | head -1)"
+ROLES="$(grep -m1 '^roles:' "$ARC_FILE" 2>/dev/null | sed 's/^roles:[[:space:]]*//; s/"//g')"
+if ! echo " $ROLES " | grep -q " $ROLE "; then
+  echo "'$ROLE' is not a work role of this arc (available: $ROLES)"; exit 1
+fi
+
+ASSIGN="$ARC_DIR/assignments.tsv"
+if [ -f "$ASSIGN" ] && awk -F'\t' -v r="$ROLE" '$1==r{f=1} END{exit !f}' "$ASSIGN"; then
+  cur="$(awk -F'\t' -v r="$ROLE" '$1==r{print $2; exit}' "$ASSIGN")"
+  echo "'$ROLE' already assigned → $cur (duplicate join refused)"; exit 1
+fi
+
+TS_ISO="$(date -Iseconds 2>/dev/null || date)"
+printf '%s\t%s\t%s\n' "$ROLE" "$ASSIGNEE" "$TS_ISO" >> "$ASSIGN"
+echo "assigned: $ROLE → $ASSIGNEE"

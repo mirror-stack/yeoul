@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# arc-close <arc_dir> "<one-line verdict>" [--stop=falsified|no-progress|converged|<other>]
+#   ★2-phase close: 1st run drafts _SUMMARY only (no seal) → fill blanks → re-run gate-checks & archives.
+#   Gates: ① "(fill in)" left  = refuse   ② falsified/KILL → KILL-defense 5-check ("(unfilled)" left = refuse)
+#   → guards against premature closure. Then STATE records CLOSED, _SUMMARY is sealed, arc moves to ../_archive/.
+#   ★stop_reason distinguishes 'falsified' vs 'no-progress' vs 'converged' (generic ⇒ no-progress only).
+#   ★Optional: seal the close into an append-only ledger (mirror-stack `am`, content-hash = _SUMMARY). Best-effort.
+#   Negatives / retractions are recorded indelibly (no silent edits).
+
+ARC_DIR="${1:-}"; VERDICT="${2:-}"; STOP="converged"
+for arg in "${@:3}"; do
+  case "$arg" in --stop=*) STOP="${arg#--stop=}" ;; esac
+done
+if [ -z "$ARC_DIR" ] || [ -z "$VERDICT" ]; then
+  echo "usage: arc-close <arc_dir> \"<one-line verdict>\" [--stop=falsified|no-progress|converged]"
+  exit 1
+fi
+[ -d "$ARC_DIR" ] || { echo "arc dir not found: $ARC_DIR"; exit 1; }
+
+ARC_DIR="$(cd "$ARC_DIR" && pwd)"
+ARC="$(basename "$ARC_DIR")"
+ARCS_DIR="$(cd "$ARC_DIR/.." && pwd)"
+ARCHIVE_DIR="$ARCS_DIR/_archive"
+TODAY=$(date +%Y-%m-%d)
+TS_ISO=$(date -Iseconds 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S")
+
+# thread status In-Progress → Closed
+ARC_FILE="$ARC_DIR/ARC/${ARC}.md"
+[ -f "$ARC_FILE" ] && sed -i 's/^status: "In-Progress"/status: "Closed"/' "$ARC_FILE"
+
+# is this a KILL-type close? (stop=falsified or verdict mentions KILL)
+IS_KILL="no"
+case "$STOP" in falsified) IS_KILL="yes" ;; esac
+case "$VERDICT" in *KILL*|*kill*) IS_KILL="yes" ;; esac
+
+SUMMARY="$ARC_DIR/_SUMMARY_${ARC}.md"
+
+# ── 1st run: draft only, stop (no seal) ──
+if [ ! -f "$SUMMARY" ]; then
+  cat > "$SUMMARY" << MDEOF
+# 🏛️ Arc closed — ${ARC}
+
+- **Closed**: ${TODAY} (${TS_ISO})
+- **stop_reason**: ${STOP}   (falsified / no-progress / converged)
+- **Verdict**: ${VERDICT}
+
+## What was closed (the conclusion)
+- (fill in)
+
+## What was NOT closed / out of scope
+- (fill in)
+
+## Evidence / artifacts
+- Deliberation: [ARC/${ARC}.md](ARC/${ARC}.md)
+- Spec: [0001_spec.md](0001_spec.md)
+- Tickets: tickets/
+
+> Discipline: negatives and retractions are recorded indelibly. Numbers only after checking against evidence.
+MDEOF
+  if [ "$IS_KILL" = "yes" ]; then
+    cat >> "$SUMMARY" << MDEOF
+
+## 🛡️ KILL-defense check (anti-premature-closure — all must be filled to seal)
+- **Anchor (positive control) reproduced**: (unfilled) ← positive control converges/reproduces in the same experiment. Anchor failure = verdict void.
+- **Independent angles converged (≥2)**: (unfilled) ← evidence you did not close on a single angle's negative alone.
+- **Implementation defect ruled out**: (unfilled) ← the mechanism was implemented correctly (a sloppy impl losing ≠ mechanism useless).
+- **Catalog cross-check**: (unfilled) ← known measurement-illusion pattern? (catalog id, or 'none').
+- **Kill wording match**: (unfilled) ← does it hit the pre-registered kill-condition verbatim (no post-hoc widening)?
+MDEOF
+  fi
+  echo "📝 _SUMMARY drafted (not sealed): $SUMMARY"
+  echo "   Fill the blanks (fill in$([ "$IS_KILL" = yes ] && echo ' / unfilled')), then re-run the same command to gate-check and archive."
+  exit 0
+fi
+
+# ── 2nd run: gate-check then seal ──
+if grep -q '(fill in)' "$SUMMARY"; then
+  echo "⛔ seal refused: '(fill in)' blanks remain in _SUMMARY — fill and re-run."
+  grep -n 'fill in' "$SUMMARY" | sed 's/^/    /'
+  exit 4
+fi
+if [ "$IS_KILL" = "yes" ]; then
+  if ! grep -q 'KILL-defense check' "$SUMMARY"; then
+    cat >> "$SUMMARY" << MDEOF
+
+## 🛡️ KILL-defense check (anti-premature-closure — all must be filled to seal)
+- **Anchor (positive control) reproduced**: (unfilled)
+- **Independent angles converged (≥2)**: (unfilled)
+- **Implementation defect ruled out**: (unfilled)
+- **Catalog cross-check**: (unfilled)
+- **Kill wording match**: (unfilled)
+MDEOF
+    echo "⛔ seal refused: KILL-type close without a 🛡️ KILL-defense check — section added. Fill 5 items and re-run."
+    exit 5
+  fi
+  if grep -q '(unfilled)' "$SUMMARY"; then
+    echo "⛔ seal refused: 🛡️ KILL-defense items remain unfilled — anti-premature-closure gate."
+    grep -n 'unfilled' "$SUMMARY" | sed 's/^/    /'
+    exit 5
+  fi
+fi
+
+echo "ARC_CLOSED ${TODAY} stop=${STOP} — ${VERDICT}" >> "$ARC_DIR/STATE.md"
+
+mkdir -p "$ARCHIVE_DIR"
+mv "$ARC_DIR" "$ARCHIVE_DIR/"
+SEALED="$ARCHIVE_DIR/$ARC/_SUMMARY_${ARC}.md"
+
+# ── optional: seal into append-only ledger (best-effort; skips if `am` absent) ──
+SEAL_MSG="no ledger — file only (install mirror-stack for sealing)"
+if command -v am >/dev/null 2>&1; then
+  if am record --agent yeoul --action arc-close --target "$ARC" \
+       --payload "{\"stop_reason\":\"${STOP}\"}" \
+       --content-file "$SEALED" >/dev/null 2>&1; then
+    SEAL_MSG="✅ sealed into ledger (content-hash = _SUMMARY → tamper-evident)"
+  else
+    SEAL_MSG="⚠️ am record failed (skipped)"
+  fi
+fi
+
+echo "┌─ Arc closed ─┐"
+echo "  arc        : $ARC"
+echo "  stop_reason: $STOP"
+echo "  verdict    : $VERDICT"
+echo "  seal       : $SEAL_MSG"
+echo "  archived   : $ARCHIVE_DIR/$ARC/  (gates passed — blanks & KILL-defense checked)"

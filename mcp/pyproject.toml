@@ -1,0 +1,26 @@
+[project]
+name = "yeoul-mcp"
+version = "0.1.0"
+description = "Gate-enforcing MCP tools over the Yeoul harness (deliberation → pre-registration → dev loop). Composes with mirror-stack."
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Mother Seara", email = "ruinbl82@gmail.com" }]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+]
+dependencies = [
+  "mcp>=1.0.0",
+]
+
+[project.scripts]
+yeoul-mcp = "yeoul_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/mirror-stack/yeoul"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["yeoul_mcp"]

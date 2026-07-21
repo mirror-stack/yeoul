@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# arc-list [--roots="dir1 dir2"] [--all]
+#   Find open deliberation arcs (default status=In-Progress only; --all = every arc). _archive excluded.
+#   Default roots = ./projects/*/design/arcs. Output (tab-separated): STATUS \t ARC_DIR \t TITLE \t ROLES
+
+PROJECTS_DIR="${YEOUL_PROJECTS:-./projects}"
+ROOTS=""; OPEN_ONLY=1
+for arg in "$@"; do
+  case "$arg" in
+    --roots=*) ROOTS="${arg#--roots=}" ;;
+    --all)     OPEN_ONLY=0 ;;
+  esac
+done
+[ -z "$ROOTS" ] && ROOTS="$PROJECTS_DIR"
+
+field() { grep -m1 "^$1:" "$2" 2>/dev/null | sed "s/^$1:[[:space:]]*//; s/\"//g"; }
+
+for root in $ROOTS; do
+  [ -d "$root" ] || continue
+  while IFS= read -r arcfile; do
+    case "$arcfile" in */_archive/*) continue ;; esac
+    arcdir="$(cd "$(dirname "$(dirname "$arcfile")")" && pwd)"
+    status="$(field status "$arcfile")"
+    title="$(field title "$arcfile")"
+    roles="$(field roles "$arcfile")"
+    if [ "$OPEN_ONLY" = "1" ] && [ "$status" != "In-Progress" ]; then continue; fi
+    printf '%s\t%s\t%s\t%s\n' "${status:-?}" "$arcdir" "${title:-?}" "${roles:-?}"
+  done < <(find "$root" -type f -path '*/ARC/*.md' 2>/dev/null)
+done

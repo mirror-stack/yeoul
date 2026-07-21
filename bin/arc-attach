@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# arc-attach <arc_dir> [role] [assignee]
+#   The *single first action* for joining a deliberation. Deterministic across sessions/models.
+#   1) auto-pick an unassigned role (or the given one) → assign (arc-join)  2) print fixed instructions + watcher command.
+#   The joining session acts ONLY on this output (no improvisation).
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+ARC_DIR="${1:-}"; ROLE="${2:-}"; ASSIGNEE="${3:-participant}"
+if [ -z "$ARC_DIR" ] || [ ! -d "$ARC_DIR" ]; then
+  echo "usage: arc-attach <arc_dir> [role] [assignee]"; exit 1
+fi
+ARC_DIR="$(cd "$ARC_DIR" && pwd)"; ARC="$(basename "$ARC_DIR")"
+
+if [ -z "$ROLE" ]; then
+  ROLE="$(bash "$SCRIPT_DIR/arc-roles" "$ARC_DIR" --unassigned 2>/dev/null | head -1 || true)"
+  [ -n "$ROLE" ] || { echo "❌ no unassigned work role — all seats filled. (state: bash $SCRIPT_DIR/arc-roles \"$ARC_DIR\")"; exit 1; }
+fi
+
+if ! bash "$SCRIPT_DIR/arc-join" "$ARC_DIR" "$ROLE" "$ASSIGNEE"; then
+  echo "→ other unassigned seats: $(bash "$SCRIPT_DIR/arc-roles" "$ARC_DIR" --unassigned | tr '\n' ' ')"; exit 1
+fi
+
+cat <<EOF
+
+════════ joined deliberation ════════
+arc  : $ARC
+role : $ROLE  ($ASSIGNEE)
+
+★ From now, act in THIS order only (no improvisation):
+① start the watcher (background):
+     bin/arc-watch "$ARC_DIR" $ROLE
+② when it wakes you → handle the open ticket(s) in tickets/$ROLE/.
+③ result = answer in that ticket + set the top status: open→answered.
+   ★NEVER edit the thread files (ARC/*.md) — the thread is written by the relay ONLY.
+   ★Do not open a question prompt to the user — if unclear, ask the relay via a new ticket (single channel).
+④ back to ① (re-wait).
+
+[rules — required]
+1. No praise-first — facts first  2. Verify before agreeing (ungrounded agreement is void)
+3. At least one rebuttal/blind-spot  4. Self-critique your own proposals  5. 7-check before concluding  6. Do not close on a single negative
+════════════════════════════════════
+EOF

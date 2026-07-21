@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# arc-roles <arc_dir> [--unassigned]
+#   Role assignment state. Default: "<role>\t<assignee|unassigned>". --unassigned: unassigned role names only.
+#   (relay is not a work role and is not printed — it's auto-assigned to the creator.)
+
+ARC_DIR="${1:-}"; MODE="all"
+for arg in "${@:2}"; do case "$arg" in --unassigned) MODE="unassigned" ;; esac; done
+[ -d "$ARC_DIR" ] || { echo "arc dir not found: $ARC_DIR" >&2; exit 1; }
+
+ARC_FILE="$(ls "$ARC_DIR"/ARC/*.md 2>/dev/null | head -1)"
+ROLES="$(grep -m1 '^roles:' "$ARC_FILE" 2>/dev/null | sed 's/^roles:[[:space:]]*//; s/"//g')"
+ASSIGN="$ARC_DIR/assignments.tsv"
+
+for r in $ROLES; do
+  who=""
+  if [ -f "$ASSIGN" ]; then who="$(awk -F'\t' -v r="$r" '$1==r{print $2; exit}' "$ASSIGN")"; fi
+  if [ -n "$who" ]; then
+    [ "$MODE" = "all" ] && printf '%s\t%s\n' "$r" "$who"
+  else
+    if [ "$MODE" = "unassigned" ]; then echo "$r"; else printf '%s\tunassigned\n' "$r"; fi
+  fi
+done

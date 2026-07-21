@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# loop-guard <arc_dir> <init|tick|status> [--max-rounds=N] [--token-budget=T] [--tokens=N] [--progress=yes|no]
+#   Deterministic *boundary* for an automated loop. The driving agent ticks each round and obeys
+#   the returned verdict. This guard only prevents runaway — it does NOT judge convergence.
+#   verdict: CONTINUE | STOP:max-rounds | STOP:budget | STOP:no-progress
+#   (Convergence / falsification is the agent's *semantic* call, made separately.)
+
+ARC_DIR="${1:-}"; CMD="${2:-status}"
+[ -d "$ARC_DIR" ] || { echo "arc dir not found: $ARC_DIR" >&2; exit 1; }
+STATE="$ARC_DIR/loop_state.tsv"
+
+MAXR=""; BUDGET=""; TOKENS=0; PROGRESS="yes"
+for a in "${@:3}"; do case "$a" in
+  --max-rounds=*)   MAXR="${a#*=}" ;;
+  --token-budget=*) BUDGET="${a#*=}" ;;
+  --tokens=*)       TOKENS="${a#*=}" ;;
+  --progress=*)     PROGRESS="${a#*=}" ;;
+esac; done
+
+ROUND=0; MR=3; TB=200000; TU=0; NP=0
+load(){
+  if [ -f "$STATE" ]; then
+    while IFS=$'\t' read -r k v; do case "$k" in
+      round) ROUND=$v ;; max_rounds) MR=$v ;; token_budget) TB=$v ;;
+      tokens_used) TU=$v ;; no_progress) NP=$v ;;
+    esac; done < "$STATE"
+  fi
+}
+save(){ printf 'round\t%s\nmax_rounds\t%s\ntoken_budget\t%s\ntokens_used\t%s\nno_progress\t%s\n' \
+        "$ROUND" "$MR" "$TB" "$TU" "$NP" > "$STATE"; }
+
+case "$CMD" in
+  init)
+    ROUND=0; MR="${MAXR:-3}"; TB="${BUDGET:-200000}"; TU=0; NP=0; save
+    echo "loop init: max_rounds=$MR token_budget=$TB" ;;
+  tick)
+    load
+    ROUND=$((ROUND+1)); TU=$((TU+TOKENS))
+    if [ "$PROGRESS" = "no" ]; then NP=$((NP+1)); else NP=0; fi
+    save
+    if   [ "$ROUND" -gt "$MR" ];  then echo "STOP:max-rounds (round=$ROUND > max=$MR)"
+    elif [ "$TU" -gt "$TB" ];     then echo "STOP:budget (used=$TU > budget=$TB)"
+    elif [ "$NP" -ge 2 ];         then echo "STOP:no-progress (streak=$NP)"
+    else                                echo "CONTINUE (round=$ROUND/$MR tokens=$TU/$TB noprog=$NP)"
+    fi ;;
+  status)
+    load; echo "round=$ROUND/$MR tokens_used=$TU/$TB no_progress=$NP" ;;
+  *)
+    echo "usage: loop-guard <arc_dir> init|tick|status [--max-rounds=N --token-budget=T --tokens=N --progress=yes|no]"; exit 1 ;;
+esac

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# yeoul-graduate <name> [--to=<path>]
+#   Graduate an incubator project: ./projects/<name> → <dest> (default ./graduated/<name>).
+#   Leaves a pointer (<name>__GRADUATED.md) in projects/. History travels with the project.
+#   Projects root ./projects (override YEOUL_PROJECTS).
+
+PROJECTS_DIR="${YEOUL_PROJECTS:-./projects}"
+
+NAME="${1:-}"; DEST=""
+for arg in "${@:2}"; do
+  case "$arg" in --to=*) DEST="${arg#--to=}" ;; esac
+done
+if [ -z "$NAME" ]; then echo "usage: yeoul-graduate <name> [--to=<path>]"; exit 1; fi
+
+SRC="$PROJECTS_DIR/$NAME"
+[ -d "$SRC" ] || { echo "project not found: $SRC"; exit 1; }
+[ -z "$DEST" ] && DEST="./graduated/$NAME"
+[ -e "$DEST" ] && { echo "dest already exists: $DEST"; exit 1; }
+
+TODAY=$(date +%Y-%m-%d)
+mkdir -p "$(dirname "$DEST")"
+mv "$SRC" "$DEST"
+
+cat > "$PROJECTS_DIR/${NAME}__GRADUATED.md" << MDEOF
+# 🎓 $NAME — graduated (${TODAY})
+
+Graduated out of the Yeoul incubator.
+- new location: \`${DEST}\`
+- design/deliberation history moved with the project.
+MDEOF
+
+echo "┌─ graduated ─┐"
+echo "  project: $NAME"
+echo "  moved  : projects/$NAME  →  ${DEST}"
+echo "  pointer: projects/${NAME}__GRADUATED.md"

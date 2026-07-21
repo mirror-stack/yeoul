@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# ralph <name> [--max-rounds=N] [--token-budget=T] [--model=M] [--agent-cmd='claude -p ...']
+#   Autonomous dev loop (external/unattended backend B): soak up dev/TODO.md items via a headless
+#   agent CLI. One round = one TODO item implemented + its `verify:` command run + checked off.
+#   Bounded by loop-guard. Projects root ./projects (override YEOUL_PROJECTS).
+#
+#   ★ In-session backend A is preferred (the session drives rounds with subagents — no nesting).
+#     This script is for out-of-session unattended runs. It shells out to an agent CLI, so it CANNOT
+#     run from inside that same agent (nested-process guard) — launch it from a terminal.
+#   ⚠️ Loop-forbidden (belongs to the human/session): measurement runs, sealing, PASS/KILL judgment.
+#      Items without a `verify:` command are refused (exit 3).
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECTS_DIR="${YEOUL_PROJECTS:-./projects}"
+
+NAME="${1:-}"; [ -n "$NAME" ] || { echo "usage: ralph <name> [--max-rounds=N --token-budget=T --model=M --agent-cmd='...']"; exit 1; }
+PROJ="$PROJECTS_DIR/$NAME"
+TODO="$PROJ/dev/TODO.md"
+[ -f "$TODO" ] || { echo "no TODO: $TODO (run build-handoff first)"; exit 1; }
+
+MAXR=4; BUDGET=300000; MODEL=""; AGENT_CMD="${YEOUL_AGENT_CMD:-claude -p --output-format json --permission-mode acceptEdits}"
+for a in "${@:2}"; do case "$a" in
+  --max-rounds=*)   MAXR="${a#*=}" ;;
+  --token-budget=*) BUDGET="${a#*=}" ;;
+  --model=*)        MODEL="${a#*=}" ;;
+  --agent-cmd=*)    AGENT_CMD="${a#*=}" ;;
+esac; done
+
+# Gate: any unchecked item without a `verify:` command → refuse the whole loop (form = eligibility).
+BAD="$(grep '^- \[ \]' "$TODO" | grep -v 'verify:' || true)"
+if [ -n "$BAD" ]; then
+  echo "⛔ unchecked items without a 'verify:' command — not loop-eligible (manual/session work):"
+  echo "$BAD" | sed 's/^/    /'
+  exit 3
+fi
+
+RALPH_DIR="$PROJ/dev/ralph_log"; mkdir -p "$RALPH_DIR"
+"$SCRIPT_DIR/loop-guard" "$RALPH_DIR" init --max-rounds="$MAXR" --token-budget="$BUDGET"
+
+unchecked() { grep -c '^- \[ \]' "$TODO" 2>/dev/null || true; }
+
+ROUND=0
+while :; do
+  LEFT="$(unchecked)"
+  if [ "${LEFT:-0}" -eq 0 ]; then echo "RALPH_DONE: all TODO items checked"; break; fi
+  ROUND=$((ROUND+1))
+  echo "── round $ROUND (unchecked $LEFT) ──"
+
+  PROMPT="You are one round of an autonomous dev loop. Working dir: $(pwd).
+
+[backlog] $TODO
+$(cat "$TODO")
+
+[rules — do not violate]
+1. Work on ONLY the top unchecked (- [ ]) item this round.
+2. Run the item's 'verify:' command and confirm exit 0 BEFORE checking it [x]. On failure, leave [ ] and note the cause in one line.
+3. Do NOT modify the verify commands or success criteria (no silent edits). No TODO changes except the checkbox.
+4. Do NOT create/modify files outside this project's dev/ tree beyond what the item requires.
+5. Forbidden: GPU/training runs, sealing tools, PASS/KILL or measurement claims, long-lived background processes.
+6. Last output line: one-line summary of the completed item (or FAIL: cause)."
+
+  ARGS=($AGENT_CMD)
+  [ -n "$MODEL" ] && ARGS+=(--model "$MODEL")
+  OUT="$RALPH_DIR/round_${ROUND}.json"
+  ( "${ARGS[@]}" "$PROMPT" > "$OUT" 2>"$RALPH_DIR/round_${ROUND}.err" ) || true
+
+  TOK=0
+  if command -v python3 >/dev/null 2>&1; then
+    TOK=$(python3 -c "
+import json,sys
+try:
+    d=json.load(open('$OUT')); u=d.get('usage',{})
+    print(int(u.get('input_tokens',0))+int(u.get('output_tokens',0)))
+    print(str(d.get('result',''))[-300:], file=sys.stderr)
+except Exception: print(0)
+" 2>"$RALPH_DIR/round_${ROUND}.tail") || TOK=0
+    tail -c 300 "$RALPH_DIR/round_${ROUND}.tail" 2>/dev/null || true; echo
+  fi
+
+  NOW="$(unchecked)"
+  PROG="no"; [ "${NOW:-0}" -lt "${LEFT:-0}" ] && PROG="yes"
+  VERDICT="$("$SCRIPT_DIR/loop-guard" "$RALPH_DIR" tick --tokens="${TOK:-0}" --progress="$PROG")"
+  echo "  progress=$PROG · $VERDICT"
+  case "$VERDICT" in STOP:*) echo "loop stopped: $VERDICT"; exit 2 ;; esac
+done
+
+echo "── done: $(unchecked) unchecked · log $RALPH_DIR ──"

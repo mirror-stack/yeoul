@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# close-project <name> [reason]
+#   Retire/reject a project → ./projects/_archive/<date>_<name>/ (+ _CLOSED.md).
+#   Distinct from graduate (success → graduated/). History preserved as-is (no silent deletion).
+#   Projects root ./projects (override YEOUL_PROJECTS).
+
+PROJECTS_DIR="${YEOUL_PROJECTS:-./projects}"
+
+NAME="${1:-}"; REASON="${2:-closed}"
+if [ -z "$NAME" ]; then echo "usage: close-project <name> [reason]"; exit 1; fi
+SRC="$PROJECTS_DIR/$NAME"
+[ -d "$SRC" ] || { echo "project not found: $SRC"; exit 1; }
+case "$SRC" in *_archive*) echo "already archived: $SRC"; exit 1 ;; esac
+
+TODAY=$(date +%Y-%m-%d)
+TS_ISO=$(date -Iseconds 2>/dev/null || date)
+ARCHIVE="$PROJECTS_DIR/_archive"
+DEST="$ARCHIVE/${TODAY}_${NAME}"
+[ -e "$DEST" ] && { echo "dest already exists: $DEST"; exit 1; }
+
+# detect unclosed (In-Progress) arcs — record the freeze
+OPEN=0
+while IFS= read -r f; do
+  case "$f" in */_archive/*) continue ;; esac
+  grep -q '^status: "In-Progress"' "$f" 2>/dev/null && OPEN=$((OPEN+1))
+done < <(find "$SRC" -type f -path '*/ARC/*.md' 2>/dev/null)
+
+cat > "$SRC/_CLOSED.md" << MDEOF
+# 🗄️ Project closed — ${NAME} (${TODAY})
+
+- **reason**: ${REASON}
+- **closed at**: ${TS_ISO}
+- **unclosed (In-Progress) arcs**: ${OPEN} (frozen with the archive)
+- **close ≠ graduate**: graduate (success) = \`yeoul-graduate\`. This is retire/reject.
+
+> design/deliberation history is preserved in this folder (no silent deletion).
+MDEOF
+
+mkdir -p "$ARCHIVE"
+mv "$SRC" "$DEST"
+
+# optional: seal into append-only ledger (best-effort; content-hash = _CLOSED.md)
+SEAL_MSG="no ledger — file only (install mirror-stack for sealing)"
+if command -v am >/dev/null 2>&1; then
+  if am record --agent yeoul --action close-project --target "$NAME" \
+       --payload "{\"open_arcs\":${OPEN},\"reason\":\"closed\"}" \
+       --content-file "$DEST/_CLOSED.md" >/dev/null 2>&1; then
+    SEAL_MSG="✅ sealed into ledger (content-hash = _CLOSED.md → tamper-evident)"
+  else
+    SEAL_MSG="⚠️ am record failed (skipped)"
+  fi
+fi
+
+echo "┌─ project closed ─┐"
+echo "  project     : $NAME"
+echo "  reason      : $REASON"
+echo "  open arcs   : $OPEN (frozen)"
+echo "  seal        : $SEAL_MSG"
+echo "  moved       : projects/$NAME  →  projects/_archive/${TODAY}_${NAME}/"

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# status [--md]
+#   One line per active project (path without _archive): name · latest arc verdict · dev TODO progress.
+#   Projects root ./projects (override YEOUL_PROJECTS).
+
+PROJECTS_DIR="${YEOUL_PROJECTS:-./projects}"
+MD=0
+for a in "$@"; do case "$a" in --md) MD=1 ;; esac; done
+
+[ -d "$PROJECTS_DIR" ] || { echo "no projects dir: $PROJECTS_DIR"; exit 0; }
+
+# truncate to 100 chars on a codepoint boundary (never splits a multibyte char).
+# python3 is already a project dependency; if absent, degrade to no truncation (never mojibake).
+_trunc100() {
+  python3 -c 'import sys; s=sys.stdin.read().strip(); print(s[:100]+("…" if len(s)>100 else ""))' 2>/dev/null || cat
+}
+verdict_of() {
+  local proj="$1"
+  local s
+  s="$(ls -t "$proj"/design/arcs/_archive/*/_SUMMARY_*.md 2>/dev/null | head -1 || true)"
+  [ -n "$s" ] || { echo "-"; return; }
+  grep -m1 'Verdict' "$s" 2>/dev/null | sed -E 's/^[[:space:]]*-[[:space:]]*(\*\*)?Verdict(\*\*)?:[[:space:]]*//' | _trunc100 || echo "-"
+}
+todo_of() {
+  local t="$1/dev/TODO.md"
+  [ -f "$t" ] || { echo "-"; return; }
+  local done total
+  done=$(grep -c '^- \[x\]' "$t" 2>/dev/null || true)
+  total=$(grep -cE '^- \[[ x]\]' "$t" 2>/dev/null || true)
+  echo "${done:-0}/${total:-0}"
+}
+
+if [ "$MD" -eq 1 ]; then
+  echo "| project | verdict | TODO |"
+  echo "| --- | --- | --- |"
+fi
+
+for proj in "$PROJECTS_DIR"/*/; do
+  proj="${proj%/}"
+  base="$(basename "$proj")"
+  case "$base" in _archive|*__GRADUATED.md) continue ;; esac
+  [ -d "$proj/design" ] || [ -d "$proj/dev" ] || continue
+  v="$(verdict_of "$proj")"; t="$(todo_of "$proj")"
+  if [ "$MD" -eq 1 ]; then
+    echo "| $base | ${v:--} | $t |"
+  else
+    echo "$base | verdict: ${v:--} | TODO: $t"
+  fi
+done
+
+if [ "$MD" -eq 0 ]; then
+  arc_n=0
+  [ -d "$PROJECTS_DIR/_archive" ] && arc_n=$(find "$PROJECTS_DIR/_archive" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+  echo "archived: ${arc_n}"
+fi

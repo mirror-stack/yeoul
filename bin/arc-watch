@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# arc-watch <arc_dir> <role> [poll_sec=30]
+#   Backend-B inbox watcher. Watches tickets/<role>/ for status:open tickets.
+#   - On start, reports *existing* open tickets immediately (no misses).
+#   - If an open ticket exists, prints its path and exits 0 (wakes the agent) → handle, then restart this watcher.
+#   - Else polls every poll_sec. Pure bash (0 tokens while waiting). Run in the background.
+
+ARC_DIR="${1:-}"; ROLE="${2:-}"; POLL="${3:-30}"
+if [ -z "$ARC_DIR" ] || [ -z "$ROLE" ]; then
+  echo "usage: arc-watch <arc_dir> <role> [poll_sec=30]"; exit 1
+fi
+INBOX="$ARC_DIR/tickets/$ROLE"
+[ -d "$INBOX" ] || { echo "inbox not found: $INBOX" >&2; exit 1; }
+
+open_tickets(){ grep -lE '^status:[[:space:]]*open' "$INBOX"/*.md 2>/dev/null | sort || true; }
+
+cur="$(open_tickets)"
+if [ -n "$cur" ]; then
+  echo "[open tickets — handle these first]"; echo "$cur"; exit 0
+fi
+echo "(waiting: $INBOX · poll=${POLL}s — wakes when an open ticket appears)"
+while true; do
+  sleep "$POLL"
+  n="$(open_tickets)"
+  if [ -n "$n" ]; then echo "[new ticket — handle it]"; echo "$n"; exit 0; fi
+done

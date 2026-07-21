@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# build-handoff <name>
+#   design → dev handoff. When deliberation closes GO/conditional-GO, generate a dev skeleton that
+#   inherits the spec + verdict: dev/dev-plan.md + dev/TODO.md. Fill the blanks from the arc _SUMMARY.
+#   Projects root ./projects (override YEOUL_PROJECTS).
+
+PROJECTS_DIR="${YEOUL_PROJECTS:-./projects}"
+
+NAME="${1:-}"
+if [ -z "$NAME" ]; then echo "usage: build-handoff <name>"; exit 1; fi
+PROJ="$PROJECTS_DIR/$NAME"
+[ -d "$PROJ" ] || { echo "project not found: $PROJ"; exit 1; }
+DESIGN="$PROJ/design"; DEV="$PROJ/dev"; SPEC="$DESIGN/spec.md"
+mkdir -p "$DEV"
+PLAN="$DEV/dev-plan.md"
+if [ -e "$PLAN" ]; then echo "already exists (not overwriting): $PLAN"; exit 1; fi
+
+spec_line() { [ -f "$SPEC" ] && grep -m1 "\*\*$1" "$SPEC" 2>/dev/null | sed 's/^[[:space:]]*-[[:space:]]*//' || true; }
+GOAL="$(spec_line 'Goal')"; SUCC="$(spec_line 'Success condition')"; KILL="$(spec_line 'Kill-condition')"
+
+SUMMARY="$(ls -t "$DESIGN"/arcs/_archive/*/_SUMMARY_*.md 2>/dev/null | head -1 || true)"
+VERDICT=""; SUMREL=""
+if [ -n "$SUMMARY" ]; then
+  VERDICT="$(grep -m1 'Verdict' "$SUMMARY" 2>/dev/null | sed -E 's/^[[:space:]]*-[[:space:]]*(\*\*)?Verdict(\*\*)?:[[:space:]]*//')"
+  SUMREL="${SUMMARY#$PROJ/}"
+fi
+TODAY=$(date +%Y-%m-%d)
+
+cat > "$PLAN" << MDEOF
+# 🔧 Dev plan — ${NAME}
+
+> design → dev handoff (${TODAY}). Fill the blanks from the deliberation summary.
+
+## Source (inherited from design)
+- spec: [../design/spec.md](../design/spec.md)
+- deliberation verdict: ${SUMREL:-(no closed arc yet — recommend re-running after close)}
+- **verdict**: ${VERDICT:-TBD}
+
+## Inherited invariants (from spec)
+- **Goal**: ${GOAL#*: }
+- **Success condition**: ${SUCC#*: }
+- **Kill-condition**: ${KILL#*: }  ← crossing this line during dev = stop
+
+## 🚧 GO gates (from the verdict — must pass before full build)
+- [ ] (copy the measurement/condition gates the deliberation set here)
+
+## Implementation steps
+- [ ] 1.
+- [ ] 2.
+
+## Risks / open (from deliberation blind-spots)
+- (copy the self-critique / blind-spots here)
+
+## Graduation
+- success condition met + GO gates passed → \`yeoul-graduate "${NAME}"\`
+MDEOF
+
+cat > "$DEV/TODO.md" << MDEOF
+# ✅ TODO — ${NAME}
+
+> Break dev-plan steps into small tasks. If the kill-condition is crossed, stop and return to design.
+> Items to be run by the autonomous loop (Ralph) MUST end with \`verify: <exit-0 command>\` —
+> items without a verify command are refused by the loop and stay manual.
+> ⚠️ Verify commands run with cwd = the workspace root (where you launch the loop), NOT this dev/ folder.
+> Write paths as workspace-relative (e.g. \`scripts/foo.sh\`).
+
+- [ ] GO gates first (measurement/verification — manual, loop-forbidden)
+- [ ] (impl item, e.g. add feature X. verify: \`bash -n scripts/x.sh && scripts/x.sh --smoke\`)
+MDEOF
+
+echo "┌─ dev handoff ─┐"
+echo "  project: $NAME"
+echo "  verdict: ${VERDICT:-TBD}"
+echo "  created: dev/dev-plan.md · dev/TODO.md  (fill blanks from _SUMMARY)"
+[ -z "$SUMMARY" ] && echo "  ⚠️ no closed arc — usually run after a GO close"

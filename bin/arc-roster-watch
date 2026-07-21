@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# arc-roster-watch <arc_dir> [poll_sec=30]
+#   Relay-only. Watches until *all* work roles are assigned → prints READY and exits 0.
+#   On READY the relay issues a motion ticket to each role (arc-ticket). Pure bash polling (0 tokens). Background.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ARC_DIR="${1:-}"; POLL="${2:-30}"
+[ -n "$ARC_DIR" ] && [ -d "$ARC_DIR" ] || { echo "usage: arc-roster-watch <arc_dir> [poll_sec=30]"; exit 1; }
+ARC_DIR="$(cd "$ARC_DIR" && pwd)"
+
+unassigned(){ bash "$SCRIPT_DIR/arc-roles" "$ARC_DIR" --unassigned 2>/dev/null || true; }
+assigned_list(){ bash "$SCRIPT_DIR/arc-roles" "$ARC_DIR" 2>/dev/null | tr '\n' ' '; }
+
+ready(){ echo "READY: all work roles assigned → dispatch the motion (arc-ticket to each role)"; echo "  assigned: $(assigned_list)"; }
+
+l="$(unassigned)"
+if [ -z "$l" ]; then ready; exit 0; fi
+echo "(waiting: unassigned [$(echo $l | tr '\n' ' ')] — wakes when filled. poll=${POLL}s)"
+while true; do
+  sleep "$POLL"
+  l="$(unassigned)"
+  [ -z "$l" ] && { ready; exit 0; }
+done
