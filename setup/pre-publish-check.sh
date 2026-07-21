@@ -14,7 +14,8 @@ echo "── 1) personalization leak scan ──"
 # Generic de-personalization checks (no internal codenames are enumerated here, so this file ships clean):
 #   (a) any Hangul — this repo is English-only, so any Korean text is a leak;
 #   (b) private absolute paths (/home/... or /data/...) that must not ship.
-LEAKS="$( { grep -rlP '\p{Hangul}' "$REPO" --exclude-dir=.git 2>/dev/null; \
+# Intentional localizations are allowed (e.g. README_KO.md, *.ko.md, docs/ko/); Hangul anywhere else is a leak.
+LEAKS="$( { grep -rlP '\p{Hangul}' "$REPO" --exclude-dir=.git --exclude-dir=ko --exclude='*_KO.md' --exclude='*.ko.md' 2>/dev/null; \
             grep -rlE '(/home|/data)/[A-Za-z]' "$REPO" --include='*.sh' --include='*.py' --include='*.md' --include='*.json' --exclude-dir=.git 2>/dev/null; } | sort -u )"
 if [ -n "$LEAKS" ]; then
   echo "$LEAKS" | sed 's/^/    /'

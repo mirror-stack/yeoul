@@ -1,5 +1,7 @@
 # Yeoul
 
+*[Read in Korean →](README_KO.md)*
+
 > *A riffle — the shallow stretch where a stream quickens over rocks — is where scattered ideas
 > collide, speed up, and get honestly tested.*
 

@@ -15,3 +15,5 @@ Initial extraction of the Yeoul harness (de-personalized structure only).
 - **Setup**: `setup/install.sh` (installs alongside mirror-stack), `setup/mcp-servers.json` (registers both
   servers), `setup/pre-publish-check.sh` (leak + over-claim + empty-scaffold gate).
 - **Example**: `examples/demo.sh` (full lifecycle, no agent/compute needed).
+- **Tests**: `tests/test_gates.sh` (assertion-based smoke test of the integrity gates).
+- **Localization**: `README_KO.md` (Korean).
