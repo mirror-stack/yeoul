@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Runtime harness on both Linux and macOS — the matrix continuously verifies portability
+  # (e.g. the sed / grep idioms that differ on BSD/macOS).
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Lint — every bash script parses
+        run: |
+          for f in bin/* setup/*.sh examples/*.sh tests/*.sh; do
+            case "$f" in *.py) continue ;; esac
+            bash -n "$f"
+          done
+      - name: Gate smoke tests
+        run: bash tests/test_gates.sh
+      - name: Worked example
+        run: bash examples/demo.sh
+      - name: Pre-publish gate (leaks / over-claim / worked example)
+        run: bash setup/pre-publish-check.sh
+
+  # Build + import the MCP server in a clean env — catches "works in the repo, broken on install".
+  mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install yeoul-mcp from source
+        run: pip install ./mcp
+      - name: Import the server + confirm the tool surface
+        run: |
+          python - <<'PY'
+          from yeoul_mcp import server
+          tools = [n for n in dir(server) if n in (
+              'yeoul_new','arc_open','arc_ticket','loop_guard_init','loop_guard_tick',
+              'arc_close','build_handoff','ralph_gate_check','status','arc_list')]
+          assert len(tools) == 10, tools
+          print("yeoul-mcp OK — 10 tools")
+          PY

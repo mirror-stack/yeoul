@@ -1,5 +1,8 @@
 # Yeoul
 
+[![CI](https://github.com/mirror-stack/yeoul/actions/workflows/ci.yml/badge.svg)](https://github.com/mirror-stack/yeoul/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 *[English](README.md)*
 
 > *여울 — 개울이 돌 위로 얕고 빠르게 흐르는 구간 — 은 흩어진 생각이 부딪고 빨라져 정직하게 시험받는 곳이다.

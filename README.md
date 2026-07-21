@@ -1,5 +1,8 @@
 # Yeoul
 
+[![CI](https://github.com/mirror-stack/yeoul/actions/workflows/ci.yml/badge.svg)](https://github.com/mirror-stack/yeoul/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 *[Read in Korean →](README_KO.md)*
 
 > *A riffle — the shallow stretch where a stream quickens over rocks — is where scattered ideas

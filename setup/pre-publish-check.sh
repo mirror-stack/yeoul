@@ -14,9 +14,23 @@ echo "── 1) personalization leak scan ──"
 # Generic de-personalization checks (no internal codenames are enumerated here, so this file ships clean):
 #   (a) any Hangul — this repo is English-only, so any Korean text is a leak;
 #   (b) private absolute paths (/home/... or /data/...) that must not ship.
-# Intentional localizations are allowed (e.g. README_KO.md, *.ko.md, docs/ko/); Hangul anywhere else is a leak.
-LEAKS="$( { grep -rlP '\p{Hangul}' "$REPO" --exclude-dir=.git --exclude-dir=ko --exclude='*_KO.md' --exclude='*.ko.md' 2>/dev/null; \
-            grep -rlE '(/home|/data)/[A-Za-z]' "$REPO" --include='*.sh' --include='*.py' --include='*.md' --include='*.json' --exclude-dir=.git 2>/dev/null; } | sort -u )"
+# Intentional localizations are allowed (README_KO.md, *.ko.md, docs/ko/); Hangul anywhere else is a leak.
+# Hangul detection via python (portable — GNU grep's -P is unavailable on macOS/BSD).
+HANGUL="$(python3 - "$REPO" <<'PY'
+import os, re, sys
+root = sys.argv[1]; h = re.compile('[\uac00-\ud7a3]')  # Hangul syllables (escaped → this file stays Hangul-free)
+for dp, _, fns in os.walk(root):
+    if '/.git' in dp or dp.endswith('/ko') or '/ko/' in dp: continue
+    for f in fns:
+        if f.endswith(('_KO.md', '.ko.md')): continue
+        p = os.path.join(dp, f)
+        try:
+            if h.search(open(p, encoding='utf-8', errors='ignore').read()): print(p)
+        except Exception: pass
+PY
+)"
+PATHS="$(grep -rlE '(/home|/data)/[A-Za-z]' "$REPO" --include='*.sh' --include='*.py' --include='*.md' --include='*.json' --exclude-dir=.git 2>/dev/null || true)"
+LEAKS="$(printf '%s\n%s\n' "$HANGUL" "$PATHS" | grep -v '^$' | sort -u)"
 if [ -n "$LEAKS" ]; then
   echo "$LEAKS" | sed 's/^/    /'
   echo "  ✗ personalization leaks found (Hangul or private absolute path)"
