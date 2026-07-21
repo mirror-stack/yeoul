@@ -55,6 +55,7 @@ $(cat "$TODO")
 [rules — do not violate]
 1. Work on ONLY the top unchecked (- [ ]) item this round.
 2. Run the item's 'verify:' command and confirm exit 0 BEFORE checking it [x]. On failure, leave [ ] and note the cause in one line.
+   (The harness independently re-runs your verify command afterward and reverts the checkbox if it does not pass — checking off without a genuinely passing verify only wastes a round.)
 3. Do NOT modify the verify commands or success criteria (no silent edits). No TODO changes except the checkbox.
 4. Do NOT create/modify files outside this project's dev/ tree beyond what the item requires.
 5. Forbidden: GPU/training runs, sealing tools, PASS/KILL or measurement claims, long-lived background processes.
@@ -64,6 +65,11 @@ $(cat "$TODO")
   [ -n "$MODEL" ] && ARGS+=(--model "$MODEL")
   OUT="$RALPH_DIR/round_${ROUND}.json"
   ( "${ARGS[@]}" "$PROMPT" > "$OUT" 2>"$RALPH_DIR/round_${ROUND}.err" ) || true
+
+  # ★ harness enforces the gate: independently re-run verify for whatever got checked off; revert failures.
+  # The agent's claim that "verify passed" is not trusted — a checkbox survives only if the command
+  # actually exits 0 when the harness runs it.
+  "$SCRIPT_DIR/verify-gate" "$TODO" --revert || echo "  ⚠ harness reverted a checked item (its verify did not pass on re-run)"
 
   TOK=0
   if command -v python3 >/dev/null 2>&1; then

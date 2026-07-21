@@ -77,6 +77,11 @@ Run the dev loop two ways (Ralph pattern):
 **Loop-forbidden (belongs to the human/session):** measurement runs, sealing, PASS/KILL judgment. The loop's
 safety comes from the machine-verification gate, not from the loop — it is only as good as your verify commands.
 
+The gate is **harness-enforced, not requested**: after each round the harness runs `bin/verify-gate <TODO> --revert`,
+which independently re-runs the `verify:` command of every checked item and flips any that don't exit 0 back to
+`[ ]`. `ralph` does this automatically; in backend A, the session must run it too. A checkbox survives only if
+its verify command actually passes when the *harness* runs it — the agent's word is not trusted.
+
 ## Exits
 - **graduate** (success): `bin/yeoul-graduate` → moves the project out of the incubator, leaves a pointer.
 - **close-project** (retire/reject): `bin/close-project` → archives with a `_CLOSED.md`, freezes open arcs,

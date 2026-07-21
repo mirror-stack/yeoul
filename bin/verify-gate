@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -uo pipefail
+# verify-gate <TODO.md> [--revert]
+#   Harness-enforced verify gate. For every checked item (`- [x]` … verify: `CMD`), the harness
+#   RE-RUNS CMD itself (cwd = current dir) — it does not trust the agent's claim that verify passed.
+#   With --revert, any item whose command exits != 0 is flipped back to `- [ ]`.
+#   This is what makes "resists self-deception" true rather than requested: a checked box only
+#   survives if its verify command actually passes when the harness runs it.
+#   Exit 0 = every checked item's verify passed · non-zero = at least one failed.
+
+TODO="${1:-}"; REVERT=0
+for a in "${@:2}"; do case "$a" in --revert) REVERT=1 ;; esac; done
+[ -n "$TODO" ] && [ -f "$TODO" ] || { echo "usage: verify-gate <TODO.md> [--revert]" >&2; exit 2; }
+
+FAIL=0; TMP="$TODO.vg.$$"
+: > "$TMP"
+while IFS= read -r line || [ -n "$line" ]; do
+  if printf '%s' "$line" | grep -qE '^- \[x\].*verify:[[:space:]]*`[^`]+`'; then
+    cmd="$(printf '%s' "$line" | sed -E 's/.*verify:[[:space:]]*`([^`]+)`.*/\1/')"
+    if ! bash -c "$cmd" >/dev/null 2>&1; then
+      FAIL=1
+      short="$(printf '%s' "$line" | sed -E 's/^(- \[x\][^:]{0,50}).*/\1/')"
+      echo "  ✗ verify FAILED: ${short}…  ($cmd)" >&2
+      if [ "$REVERT" -eq 1 ]; then
+        line="$(printf '%s' "$line" | sed 's/^- \[x\]/- [ ]/')"
+        echo "    ↩ reverted to [ ] (harness re-ran verify; it did not pass)" >&2
+      fi
+    fi
+  fi
+  printf '%s\n' "$line" >> "$TMP"
+done < "$TODO"
+mv "$TMP" "$TODO"
+exit "$FAIL"

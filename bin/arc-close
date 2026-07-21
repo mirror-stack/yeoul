@@ -25,9 +25,14 @@ ARCHIVE_DIR="$ARCS_DIR/_archive"
 TODAY=$(date +%Y-%m-%d)
 TS_ISO=$(date -Iseconds 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S")
 
+# portable in-place edit (GNU + BSD/macOS sed): sed writes to a temp file, then mv.
+sed_inplace() { # sed_inplace <sed-expr> <file>
+  sed "$1" "$2" > "$2.tmp" && mv "$2.tmp" "$2"
+}
+
 # thread status In-Progress → Closed
 ARC_FILE="$ARC_DIR/ARC/${ARC}.md"
-[ -f "$ARC_FILE" ] && sed -i 's/^status: "In-Progress"/status: "Closed"/' "$ARC_FILE"
+[ -f "$ARC_FILE" ] && sed_inplace 's/^status: "In-Progress"/status: "Closed"/' "$ARC_FILE"
 
 # is this a KILL-type close? (stop=falsified or verdict mentions KILL)
 IS_KILL="no"
@@ -99,6 +104,26 @@ MDEOF
     grep -n 'unfilled' "$SUMMARY" | sed 's/^/    /'
     exit 5
   fi
+  # minimal substance check — can't judge truth, but reject self-evident evasions (a bare "yes", ".", etc.)
+  while IFS= read -r vline; do
+    case "$vline" in "- **"*"**:"*) ;; *) continue ;; esac
+    vlabel="$(printf '%s' "$vline" | sed -E 's/^- \*\*([^*]+)\*\*.*/\1/')"
+    vans="$(printf '%s' "$vline" | sed -E 's/^- \*\*[^*]+\*\*:[[:space:]]*//; s/[[:space:]]*←.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')"
+    vlow="$(printf '%s' "$vans" | tr '[:upper:]' '[:lower:]')"
+    case "$vlow" in ""|y|yes|ok|okay|na|n/a|done|.|-|x|pass|true|good|yep|sure|n)
+      echo "⛔ seal refused: KILL-defense '$vlabel' answer too trivial: '$vans'"; exit 5 ;;
+    esac
+    case "$vlabel" in
+      *[Cc]atalog*)  # a catalog id, or the literal 'none'
+        case "$vlow" in none) : ;; *) printf '%s' "$vans" | grep -qE '[A-Za-z0-9_]{3,}' \
+          || { echo "⛔ seal refused: catalog cross-check needs a catalog id or 'none': '$vans'"; exit 5; } ;; esac ;;
+      *[Aa]nchor*)   # a number, or a seal/reproduction reference
+        printf '%s' "$vlow" | grep -qE '[0-9]|seal|anchor|reproduc|converg|hash' \
+          || { echo "⛔ seal refused: anchor answer needs a number or a seal/reproduction reference: '$vans'"; exit 5; } ;;
+      *)             # otherwise require a little substance
+        [ "${#vans}" -ge 6 ] || { echo "⛔ seal refused: KILL-defense '$vlabel' answer too short: '$vans'"; exit 5; } ;;
+    esac
+  done < <(sed -n '/KILL-defense check/,$p' "$SUMMARY")
 fi
 
 echo "ARC_CLOSED ${TODAY} stop=${STOP} — ${VERDICT}" >> "$ARC_DIR/STATE.md"
