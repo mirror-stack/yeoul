@@ -27,3 +27,8 @@ Initial extraction of the Yeoul harness (de-personalized structure only).
 - **KILL-defense substance check**: `arc-close` now rejects self-evident evasions in the 5-check (a bare
   "yes"/"."), and requires the catalog field to be an id or `none` and the anchor field to reference a
   number or a seal/reproduction.
+- **Sealed kill-condition injection** (`bin/arc-prereg` + `arc-close`): when a pre-registration seal is
+  linked to an arc, the harness injects the sealed kill-condition *verbatim* from the ledger instead of
+  trusting an agent-typed field, and refuses the close if that line is edited — closing the post-hoc
+  goalpost-moving hole structurally. Unsealed closes are stamped `⚠️ UNSEALED` (attestation-only). Scope:
+  this fixes the condition by reference; whether the result triggers it remains a judgment (not automated).

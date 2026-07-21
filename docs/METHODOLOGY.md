@@ -58,6 +58,16 @@ they're filled. A **falsified/KILL** close additionally requires the **🛡️ K
 anchor (positive control) reproduced · ≥2 independent angles converged · implementation defect ruled out ·
 catalog cross-check · verbatim kill-wording. This is the anti-premature-closure gate.
 
+**Sealed kill-condition injection.** If you sealed the kill-condition (mirror-stack `mm_preregister`) and
+linked it to the arc (`bin/arc-prereg <arc_dir> <claim_id> [ledger]`), the KILL-defense check no longer asks
+the agent to *type* whether the verdict matches the pre-registration. Instead the harness reads the sealed
+kill-condition from the ledger and **injects it verbatim** into the record; on close it refuses if that line
+was edited. The agent is not the author of the condition, so it cannot be silently widened at close.
+Scope, honestly: this fixes the *condition* by reference — whether the result actually triggers it remains a
+judgment the agent asserts, and this is **not** "machine-verified honesty", only a removed goalpost. Without a
+linked seal the field stays attestation-only and the close is stamped `⚠️ UNSEALED` — the missing seal is itself
+the signal.
+
 ## ⑤ Dev handoff + loop
 On GO, `bin/build-handoff` generates `dev/dev-plan.md` + `dev/TODO.md` inheriting the spec + verdict.
 **Translate the verdict into TODO items, each ending with `verify: <exit-0 command>`.** Items without a

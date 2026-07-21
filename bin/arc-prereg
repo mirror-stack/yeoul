@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# arc-prereg <arc_dir> <claim_id> [ledger]
+#   Link a pre-registration seal to this arc. Once linked, arc-close INJECTS the verbatim sealed
+#   kill-condition (from the ledger, by claim_id) into the KILL-defense record instead of trusting an
+#   agent-typed field — closing the "post-hoc widening" hole structurally (the agent isn't its author).
+#   ledger defaults to $YEOUL_LEDGER. Verifies the claim's kill_condition is present before linking.
+#
+# Typical flow: seal the kill-condition with mirror-stack (mm_preregister) → arc-prereg <arc> <claim_id>.
+
+ARC_DIR="${1:-}"; CLAIM="${2:-}"; LEDGER="${3:-${YEOUL_LEDGER:-}}"
+if [ -z "$ARC_DIR" ] || [ -z "$CLAIM" ]; then
+  echo "usage: arc-prereg <arc_dir> <claim_id> [ledger]   (ledger defaults to \$YEOUL_LEDGER)"; exit 1
+fi
+[ -d "$ARC_DIR" ] || { echo "arc dir not found: $ARC_DIR"; exit 1; }
+[ -n "$LEDGER" ] || { echo "no ledger given (pass one or set \$YEOUL_LEDGER)"; exit 1; }
+[ -f "$LEDGER" ] || { echo "ledger not found: $LEDGER"; exit 1; }
+
+KILL="$(python3 - "$LEDGER" "$CLAIM" 2>/dev/null <<'PY'
+import json, sys
+led, cid = sys.argv[1], sys.argv[2]
+for line in open(led, encoding='utf-8', errors='ignore'):
+    line = line.strip()
+    if not line: continue
+    try: d = json.loads(line)
+    except Exception: continue
+    if d.get('claim_id') == cid and d.get('kill_condition'):
+        print(' '.join(str(d['kill_condition']).split())); break
+PY
+)"
+[ -n "$KILL" ] || { echo "❌ claim '$CLAIM' with a kill_condition not found in $LEDGER"; exit 1; }
+
+printf '%s\n%s\n' "$CLAIM" "$LEDGER" > "$ARC_DIR/.prereg"
+echo "🔒 prereg linked: arc $(basename "$ARC_DIR") ← seal $CLAIM"
+echo "   sealed kill-condition: ${KILL:0:100}$([ "${#KILL}" -gt 100 ] && echo '…')"
+echo "   arc-close will now inject this verbatim (agent cannot re-author it)."

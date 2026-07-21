@@ -39,6 +39,51 @@ IS_KILL="no"
 case "$STOP" in falsified) IS_KILL="yes" ;; esac
 case "$VERDICT" in *KILL*|*kill*) IS_KILL="yes" ;; esac
 
+# ── ① sealed kill-condition injection ─────────────────────────────────────────────────────────
+# If a pre-registration seal is linked to this arc (.prereg = claim_id + ledger), the harness INJECTS
+# the verbatim sealed kill-condition into the record instead of trusting an agent-typed field. The agent
+# is not the author of the condition, so it cannot be silently widened at close (post-hoc goalpost move).
+# NOTE: this fixes the *condition* by reference; whether the result triggers it remains a judgment.
+extract_kill() { # extract_kill <ledger> <claim_id> → verbatim kill_condition (whitespace-collapsed), else empty
+  [ -f "$1" ] || return 0
+  python3 - "$1" "$2" 2>/dev/null <<'PY'
+import json, sys
+led, cid = sys.argv[1], sys.argv[2]
+for line in open(led, encoding='utf-8', errors='ignore'):
+    line = line.strip()
+    if not line: continue
+    try: d = json.loads(line)
+    except Exception: continue
+    if d.get('claim_id') == cid and d.get('kill_condition'):
+        print(' '.join(str(d['kill_condition']).split())); break
+PY
+}
+PREREG="$ARC_DIR/.prereg"
+SEAL_CLAIM=""; SEAL_LEDGER=""; SEAL_KILL=""
+if [ -f "$PREREG" ]; then
+  SEAL_CLAIM="$(sed -n '1p' "$PREREG")"; SEAL_LEDGER="$(sed -n '2p' "$PREREG")"
+  SEAL_KILL="$(extract_kill "$SEAL_LEDGER" "$SEAL_CLAIM")"
+fi
+
+emit_kill_defense() { # KILL-defense section: sealed → inject verbatim condition; unsealed → attestation-only
+  echo ""
+  echo "## 🛡️ KILL-defense check (anti-premature-closure — all must be filled to seal)"
+  if [ -n "$SEAL_KILL" ]; then
+    echo "**Sealed kill-condition** (verbatim from seal \`$SEAL_CLAIM\` — harness-injected, do not edit):"
+    printf '  > %s\n' "$SEAL_KILL"
+    echo "- **Result triggers the sealed condition?**: (unfilled) ← the condition above is fixed by the seal; assert only that the result meets it (a judgment — not the condition)."
+  else
+    echo "> ⚠️ UNSEALED close — no pre-registration linked (arc-prereg). Kill-wording cannot be machine-anchored,"
+    echo "> so this close is attestation-only. Seal the kill-condition (mirror-stack) and link it (arc-prereg) to"
+    echo "> have the harness inject the verbatim condition instead of trusting a typed field."
+    echo "- **Kill wording match**: (unfilled) ← does it hit the pre-registered kill-condition verbatim (no post-hoc widening)?"
+  fi
+  echo "- **Anchor (positive control) reproduced**: (unfilled) ← positive control converges/reproduces in the same experiment. Anchor failure = verdict void."
+  echo "- **Independent angles converged (≥2)**: (unfilled) ← evidence you did not close on a single angle's negative alone."
+  echo "- **Implementation defect ruled out**: (unfilled) ← the mechanism was implemented correctly (a sloppy impl losing ≠ mechanism useless)."
+  echo "- **Catalog cross-check**: (unfilled) ← known measurement-illusion pattern? (catalog id, or 'none')."
+}
+
 SUMMARY="$ARC_DIR/_SUMMARY_${ARC}.md"
 
 # ── 1st run: draft only, stop (no seal) ──
@@ -63,18 +108,10 @@ if [ ! -f "$SUMMARY" ]; then
 
 > Discipline: negatives and retractions are recorded indelibly. Numbers only after checking against evidence.
 MDEOF
-  if [ "$IS_KILL" = "yes" ]; then
-    cat >> "$SUMMARY" << MDEOF
-
-## 🛡️ KILL-defense check (anti-premature-closure — all must be filled to seal)
-- **Anchor (positive control) reproduced**: (unfilled) ← positive control converges/reproduces in the same experiment. Anchor failure = verdict void.
-- **Independent angles converged (≥2)**: (unfilled) ← evidence you did not close on a single angle's negative alone.
-- **Implementation defect ruled out**: (unfilled) ← the mechanism was implemented correctly (a sloppy impl losing ≠ mechanism useless).
-- **Catalog cross-check**: (unfilled) ← known measurement-illusion pattern? (catalog id, or 'none').
-- **Kill wording match**: (unfilled) ← does it hit the pre-registered kill-condition verbatim (no post-hoc widening)?
-MDEOF
-  fi
+  [ "$IS_KILL" = "yes" ] && emit_kill_defense >> "$SUMMARY"
   echo "📝 _SUMMARY drafted (not sealed): $SUMMARY"
+  [ "$IS_KILL" = yes ] && [ -n "$SEAL_KILL" ] && echo "   🔒 sealed kill-condition injected from seal $SEAL_CLAIM (not agent-authored)."
+  [ "$IS_KILL" = yes ] && [ -z "$SEAL_KILL" ] && echo "   ⚠️ UNSEALED — no prereg linked (arc-prereg); kill-wording is attestation-only."
   echo "   Fill the blanks (fill in$([ "$IS_KILL" = yes ] && echo ' / unfilled')), then re-run the same command to gate-check and archive."
   exit 0
 fi
@@ -87,16 +124,13 @@ if grep -q '(fill in)' "$SUMMARY"; then
 fi
 if [ "$IS_KILL" = "yes" ]; then
   if ! grep -q 'KILL-defense check' "$SUMMARY"; then
-    cat >> "$SUMMARY" << MDEOF
-
-## 🛡️ KILL-defense check (anti-premature-closure — all must be filled to seal)
-- **Anchor (positive control) reproduced**: (unfilled)
-- **Independent angles converged (≥2)**: (unfilled)
-- **Implementation defect ruled out**: (unfilled)
-- **Catalog cross-check**: (unfilled)
-- **Kill wording match**: (unfilled)
-MDEOF
-    echo "⛔ seal refused: KILL-type close without a 🛡️ KILL-defense check — section added. Fill 5 items and re-run."
+    emit_kill_defense >> "$SUMMARY"
+    echo "⛔ seal refused: KILL-type close without a 🛡️ KILL-defense check — section added. Fill it and re-run."
+    exit 5
+  fi
+  # ① the harness owns the sealed-condition line — it must remain the verbatim seal (no silent widening)
+  if [ -n "$SEAL_KILL" ] && ! grep -qxF "  > $SEAL_KILL" "$SUMMARY"; then
+    echo "⛔ seal refused: the harness-injected sealed kill-condition line was edited — it must stay verbatim from seal \`$SEAL_CLAIM\`."
     exit 5
   fi
   if grep -q '(unfilled)' "$SUMMARY"; then

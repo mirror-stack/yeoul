@@ -36,6 +36,30 @@ sedi 's/^- \*\*Catalog.*/- **Catalog cross-check**: none/' "$SUM"
 sedi 's/^- \*\*Kill wording.*/- **Kill wording match**: matches the sealed kill-condition verbatim/' "$SUM"
 "$BIN/arc-close" "$ARC" "KILL — test" --stop=falsified >/dev/null 2>&1; assert "substantive answers seal+archive" 0 $?
 [ -d "$WS/arcs/_archive"/*_g ] && echo "  ✓ archived" || { echo "  ✗ not archived"; FAIL=1; }
+grep -q "UNSEALED" "$WS/arcs/_archive"/*_g/_SUMMARY_*.md && echo "  ✓ unsealed close stamped UNSEALED" || { echo "  ✗ missing UNSEALED stamp"; FAIL=1; }
+
+# --- ① sealed kill-condition injection (harness injects verbatim; agent is not its author) ---
+LEDGER="$WS/ledger.jsonl"
+printf '%s\n' '{"claim_id":"c1","metric":"m","kill_condition":"effect size d < 0.2 over >= 3 seeds","kill_threshold":{}}' > "$LEDGER"
+"$BIN/arc-open" s --topic="sealed gate" --arcs-dir="$WS/arcs" >/dev/null 2>&1
+SARC="$(ls -d "$WS"/arcs/*_s)"
+YEOUL_LEDGER="$LEDGER" "$BIN/arc-prereg" "$SARC" c1 >/dev/null 2>&1; assert "arc-prereg links a valid claim" 0 $?
+"$BIN/arc-close" "$SARC" "KILL — sealed" --stop=falsified >/dev/null 2>&1   # draft (injects verbatim)
+SSUM="$(ls "$SARC"/_SUMMARY_*.md)"
+grep -qF "effect size d < 0.2 over >= 3 seeds" "$SSUM" && echo "  ✓ sealed kill-condition injected verbatim" || { echo "  ✗ verbatim not injected"; FAIL=1; }
+grep -q "Kill wording match" "$SSUM" && { echo "  ✗ attestable Kill-wording field still present"; FAIL=1; } || echo "  ✓ attestable Kill-wording field replaced by injected reference"
+sedi 's/- (fill in)/- concrete conclusion/' "$SSUM"     # clear the (fill in) blanks first
+# now widening the sealed line must be refused
+sedi 's/^  > effect size.*/  > effect size d < 0.9 (widened)/' "$SSUM"
+"$BIN/arc-close" "$SARC" "KILL — sealed" --stop=falsified >/dev/null 2>&1; assert "editing the sealed condition is refused" 5 $?
+# restore the verbatim + fill the fields → seals
+sedi 's/^  > effect size.*/  > effect size d < 0.2 over >= 3 seeds/' "$SSUM"
+sedi 's/^- \*\*Result triggers.*/- **Result triggers the sealed condition?**: yes, measured d = 0.05 < 0.2/' "$SSUM"
+sedi 's/^- \*\*Anchor.*/- **Anchor (positive control) reproduced**: anchor reproduced over 3 runs/' "$SSUM"
+sedi 's/^- \*\*Independent.*/- **Independent angles converged**: 2 angles agreed/' "$SSUM"
+sedi 's/^- \*\*Implementation.*/- **Implementation defect ruled out**: mechanism reviewed, correct/' "$SSUM"
+sedi 's/^- \*\*Catalog.*/- **Catalog cross-check**: none/' "$SSUM"
+"$BIN/arc-close" "$SARC" "KILL — sealed" --stop=falsified >/dev/null 2>&1; assert "sealed close seals once verbatim intact + filled" 0 $?
 
 # --- ralph verify-gate ---
 "$BIN/yeoul-new" p --no-arc >/dev/null 2>&1
