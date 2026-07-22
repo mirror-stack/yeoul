@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -uo pipefail
+# index-append <archived_arc_dir>
+#   Hands-off, auto-growing arc-close knowledge index. arc-close calls this after archiving.
+#   Joins only sealed sources (the archived _SUMMARY + a linked mm claim) → appends to one file
+#   (never rots; not a new store). Index path = $YEOUL_INDEX, default <repo>/KNOWLEDGE_INDEX.md.
+#   Best-effort: a failure here never affects the close.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ARC_DIR="${1:-}"; [ -n "$ARC_DIR" ] && [ -d "$ARC_DIR" ] || exit 0
+ARC="$(basename "$ARC_DIR")"
+SUM="$(ls "$ARC_DIR"/_SUMMARY_*.md 2>/dev/null | head -1)"; [ -f "$SUM" ] || exit 0
+INDEX="${YEOUL_INDEX:-$SCRIPT_DIR/../KNOWLEDGE_INDEX.md}"
+
+CLAIM="-"; [ -f "$ARC_DIR/.prereg" ] && CLAIM="$(sed -n '1p' "$ARC_DIR/.prereg")"
+
+read -r DATE STOP < <(python3 - "$SUM" <<'PY'
+import re,sys
+t=open(sys.argv[1],encoding='utf-8',errors='ignore').read()
+def g(p,d='-'):
+    m=re.search(p,t); return m.group(1).strip() if m else d
+print(g(r'\*\*Closed\*\*:\s*([0-9-]+)'), g(r'\*\*stop_reason\*\*:\s*(\S+)'))
+PY
+)
+VERDICT="$(python3 - "$SUM" <<'PY'
+import re,sys
+t=open(sys.argv[1],encoding='utf-8',errors='ignore').read()
+m=re.search(r'\*\*Verdict\*\*:\s*(.+)',t); print((m.group(1).strip() if m else '-')[:160])
+PY
+)"
+CLOSED="$(python3 - "$SUM" <<'PY'
+import re,sys
+t=open(sys.argv[1],encoding='utf-8',errors='ignore').read()
+m=re.search(r'##\s*What was closed[^\n]*\n(?:>.*\n)*-\s*(.+)',t)
+print((m.group(1).strip() if m else '-')[:240])
+PY
+)"
+
+[ -f "$INDEX" ] || cat > "$INDEX" <<'HDR'
+# 🌊 Yeoul arc-close knowledge index (auto-generated — do not hand-edit)
+
+> arc-close appends here on close. Source = sealed _SUMMARY + any linked claim. New rows accrue below.
+> Each entry: date · verdict · stop · arc · sealed claim · one-line conclusion.
+
+HDR
+
+REL="${ARC_DIR#"$SCRIPT_DIR"/../}"
+{
+  printf '## %s · `%s` · %s\n' "${DATE:--}" "${STOP:--}" "$ARC"
+  printf -- '- **Verdict**: %s\n' "$VERDICT"
+  [ "$CLAIM" != "-" ] && printf -- '- **Sealed claim**: `%s`\n' "$CLAIM"
+  printf -- '- **Closed**: %s\n' "$CLOSED"
+  printf -- '- source: %s\n\n' "$REL"
+} >> "$INDEX"
+echo "  📚 knowledge index appended: ${INDEX}"

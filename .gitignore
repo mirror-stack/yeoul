@@ -3,4 +3,5 @@ __pycache__/
 *.egg-info/
 projects/
 graduated/
+KNOWLEDGE_INDEX.md
 .venv/

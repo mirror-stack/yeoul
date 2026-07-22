@@ -18,6 +18,11 @@ Initial extraction of the Yeoul harness (de-personalized structure only).
 - **Tests**: `tests/test_gates.sh` (assertion-based smoke test of the integrity gates).
 - **Localization**: `README_KO.md` (Korean).
 
+### Added
+- **Auto-growing knowledge index** (`bin/index-append`, called by `arc-close`): every close appends a
+  cross-linked row (verdict · stop · sealed claim · one-line conclusion · source) to `KNOWLEDGE_INDEX.md`.
+  Hands-off, sourced only from the sealed _SUMMARY — it can't rot the way a hand-maintained wiki does.
+
 ### Review fixes
 - **Portability**: replaced GNU-only `sed -i` with a portable temp-file edit (was silently failing the
   In-Progress→Closed status update on macOS/BSD sed, which the README targets).

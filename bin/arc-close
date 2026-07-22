@@ -179,6 +179,10 @@ if command -v am >/dev/null 2>&1; then
   fi
 fi
 
+# ── auto-growing knowledge index (hands-off; appends on close) ──
+[ -x "$(dirname "${BASH_SOURCE[0]}")/index-append" ] && \
+  bash "$(dirname "${BASH_SOURCE[0]}")/index-append" "$ARCHIVE_DIR/$ARC" || true
+
 echo "┌─ Arc closed ─┐"
 echo "  arc        : $ARC"
 echo "  stop_reason: $STOP"
