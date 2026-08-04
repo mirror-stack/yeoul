@@ -83,6 +83,22 @@ printf -- '- [x] decoy. verify: `false` verify: `true`\n' > "$T3"
 "$BIN/verify-gate" "$T3" --revert >/dev/null 2>&1
 grep -q '^- \[ \] decoy' "$T3" && echo "  ✓ decoy double-verify reverted (first block wins)" || { echo "  ✗ decoy passed (greedy bug)"; FAIL=1; }
 
+# --- clause-deletion bypass: ticking a box after deleting `verify:` must not survive ---
+# Regression: the gate keys on text the agent writes, so a checked item with the clause removed used
+# to be invisible to it and passed silently. Observed, not hypothetical.
+T4="$WS/t4.md"
+printf -- '- [x] deleted its own verify clause\n' > "$T4"
+"$BIN/verify-gate" "$T4" >/dev/null 2>&1; assert "clause-less checked item passes without --require-verify (compat)" 0 $?
+"$BIN/verify-gate" "$T4" --revert --require-verify >/dev/null 2>&1; assert "clause-less checked item fails with --require-verify" 1 $?
+grep -q '^- \[ \] deleted its own verify clause' "$T4" && echo "  ✓ clause-less box reverted to [ ]" || { echo "  ✗ clause-less box survived"; FAIL=1; }
+# a genuine passing item must still survive under the same flag (no false positives)
+printf -- '- [x] real. verify: `true`\n' > "$T4"
+"$BIN/verify-gate" "$T4" --revert --require-verify >/dev/null 2>&1; assert "genuine checked item still passes under --require-verify" 0 $?
+grep -q '^- \[x\] real' "$T4" && echo "  ✓ genuine box left checked" || { echo "  ✗ genuine box wrongly reverted"; FAIL=1; }
+# ralph must refuse a TODO whose CHECKED item lacks a verify clause (was only checking unchecked ones)
+printf -- '- [x] checked without verify\n- [ ] ok. verify: `true`\n' > "$WS/projects/p/dev/TODO.md"
+"$BIN/ralph" p >/dev/null 2>&1; assert "ralph refuses a checked item without verify" 3 $?
+
 # --- index-append: the conclusion must survive any list style, and a miss must be loud ---
 # Regression: the extractor used to assume a `- ` bullet, so a numbered list silently indexed
 # an empty conclusion while still logging success. Observed in the wild, not hypothetical.

@@ -119,6 +119,24 @@ def ralph_gate_check(name: str, workspace: str = ".") -> dict:
 
 
 @mcp.tool()
+def arc_prereg(arc_dir: str, claim_id: str, ledger: str = "", workspace: str = ".") -> dict:
+    """Link a sealed pre-registration to an arc so arc_close injects its kill-condition VERBATIM instead of
+    trusting an agent-typed field. Seal the claim first (mirror-stack). Without this, closes are UNSEALED."""
+    args = [arc_dir, claim_id] + ([ledger] if ledger else [])
+    return _run("arc-prereg", *args, cwd=workspace)
+
+
+@mcp.tool()
+def verify_gate(todo_path: str, revert: bool = True, require_verify: bool = True,
+                workspace: str = ".") -> dict:
+    """Re-run the `verify:` command of every checked TODO item and revert the boxes that do not pass. This is
+    the harness half of the dev loop — backend A (in-session) MUST call it each round, or nothing has been
+    verified but the agent's word. require_verify also reverts a checked item whose verify clause is missing."""
+    args = [todo_path] + (["--revert"] if revert else []) + (["--require-verify"] if require_verify else [])
+    return _run("verify-gate", *args, cwd=workspace)
+
+
+@mcp.tool()
 def status(workspace: str = ".", md: bool = False) -> dict:
     """One line per active project: name · latest arc verdict · dev TODO progress."""
     return _run("status", *(["--md"] if md else []), cwd=workspace)
