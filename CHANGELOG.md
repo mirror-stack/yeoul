@@ -23,6 +23,23 @@ Initial extraction of the Yeoul harness (de-personalized structure only).
   cross-linked row (verdict · stop · sealed claim · one-line conclusion · source) to `KNOWLEDGE_INDEX.md`.
   Hands-off, sourced only from the sealed _SUMMARY — it can't rot the way a hand-maintained wiki does.
 
+### Audit fixes (2026-08-05 — found by auditing docs against code)
+- **Verify-gate bypass closed.** The gate keyed on the `verify:` clause, which lives in a file the agent
+  edits: deleting the clause while ticking the box made the item invisible to the gate and it survived
+  unverified. `verify-gate --require-verify` now treats a checked item with no verify clause as a failure,
+  `ralph` passes the flag and refuses a TODO where *any* item (checked or not) lacks the clause. The docs
+  that claimed "a checkbox survives only if its verify command passes" were corrected to state what is
+  actually enforced — and what is not (a verify command that cannot fail is still on the author).
+- **The two strongest gates reached MCP.** `arc_prereg` (link a seal so `arc_close` injects the
+  kill-condition verbatim) and `verify_gate` (re-run a round's verify commands) had no MCP tool, so an
+  agent driving Yeoul purely through MCP — the setup the README prescribes — could run neither. Added;
+  tool surface 10 → 12.
+- **Docs**: `bin/yeoul-graduate` → `bin/graduate` (the referenced command did not exist); backend A's
+  obligation to run the verify gate itself made explicit in METHODOLOGY and the bootstrap prompt.
+- **`index-append`**: numbered lists no longer index an empty conclusion, and a failed extraction warns
+  instead of passing silently (see below).
+- **`mcp<2` pin**: an unbounded floor let CI install a breaking major (`mcp.server.fastmcp` moved).
+
 ### Review fixes
 - **Portability**: replaced GNU-only `sed -i` with a portable temp-file edit (was silently failing the
   In-Progress→Closed status update on macOS/BSD sed, which the README targets).

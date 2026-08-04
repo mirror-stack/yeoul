@@ -1,21 +1,40 @@
 #!/usr/bin/env bash
 set -uo pipefail
-# verify-gate <TODO.md> [--revert]
+# verify-gate <TODO.md> [--revert] [--require-verify]
 #   Harness-enforced verify gate. For every checked item (`- [x]` … verify: `CMD`), the harness
 #   RE-RUNS CMD itself (cwd = current dir) — it does not trust the agent's claim that verify passed.
 #   With --revert, any item whose command exits != 0 is flipped back to `- [ ]`.
-#   This is what makes "resists self-deception" true rather than requested: a checked box only
-#   survives if its verify command actually passes when the harness runs it.
 #   Exit 0 = every checked item's verify passed · non-zero = at least one failed.
+#
+#   --require-verify: a checked item with NO `verify:` clause counts as a failure too.
+#   Why it exists: without it the gate keys on text the agent itself writes, so deleting the
+#   `verify:` clause while ticking the box made the item invisible to the gate and it survived
+#   unverified (observed, not hypothetical). `ralph` always passes this flag — its eligibility gate
+#   has already established that every item in a loop-driven TODO carries a verify command.
+#   Default stays off so a mixed TODO (loop items + manual items) can still be scanned standalone.
 
-TODO="${1:-}"; REVERT=0
-for a in "${@:2}"; do case "$a" in --revert) REVERT=1 ;; esac; done
-[ -n "$TODO" ] && [ -f "$TODO" ] || { echo "usage: verify-gate <TODO.md> [--revert]" >&2; exit 2; }
+TODO="${1:-}"; REVERT=0; REQUIRE=0
+for a in "${@:2}"; do case "$a" in
+  --revert)         REVERT=1 ;;
+  --require-verify) REQUIRE=1 ;;
+esac; done
+[ -n "$TODO" ] && [ -f "$TODO" ] || { echo "usage: verify-gate <TODO.md> [--revert] [--require-verify]" >&2; exit 2; }
 
 FAIL=0; TMP="$TODO.vg.$$"
 : > "$TMP"
 while IFS= read -r line || [ -n "$line" ]; do
-  if printf '%s' "$line" | grep -qE '^- \[x\].*verify:[[:space:]]*`[^`]+`'; then
+  if [ "$REQUIRE" -eq 1 ] && printf '%s' "$line" | grep -q '^- \[x\]' \
+     && ! printf '%s' "$line" | grep -qE 'verify:[[:space:]]*`[^`]+`'; then
+    # checked but carries no verify command — the gate has nothing to re-run, so it cannot vouch
+    # for this box. Treat as failed rather than skipping it (skipping is how the clause-deletion
+    # bypass worked).
+    FAIL=1
+    echo "  ✗ checked item has no verify command: ${line:0:60}…" >&2
+    if [ "$REVERT" -eq 1 ]; then
+      line="$(printf '%s' "$line" | sed 's/^- \[x\]/- [ ]/')"
+      echo "    ↩ reverted to [ ] (nothing for the harness to verify)" >&2
+    fi
+  elif printf '%s' "$line" | grep -qE '^- \[x\].*verify:[[:space:]]*`[^`]+`'; then
     # extract the FIRST verify block via python (sed's greedy `.*verify:` grabbed the LAST block,
     # letting an appended decoy `verify: `true`` override a real failing command).
     cmd="$(printf '%s' "$line" | python3 -c 'import sys,re; m=re.search(r"verify:\s*`([^`]+)`", sys.stdin.read()); sys.stdout.write(m.group(1) if m else "")')"

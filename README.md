@@ -65,7 +65,9 @@ New to the method? Read [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md), then paste
 - **KILL-defense 5-check** — a "failed" verdict cannot be sealed until anchor-reproduction, ≥2 independent
   angles, implementation-defect ruled out, catalog cross-check, and verbatim kill-wording are all recorded.
 - **Verify-gated dev loop** — each automated development round advances one TODO item and may only check it
-  off after its own machine verification command exits 0. Items without a verify command are refused.
+  off after its own machine verification command exits 0, re-run by the harness rather than reported by the
+  agent. Items without a verify command are refused — including checked ones, so deleting the clause is not
+  a way out. (A verify command that cannot fail is still a hole: that part is on the author.)
 
 ## Layers
 

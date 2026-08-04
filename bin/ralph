@@ -27,10 +27,13 @@ for a in "${@:2}"; do case "$a" in
   --agent-cmd=*)    AGENT_CMD="${a#*=}" ;;
 esac; done
 
-# Gate: any unchecked item without a `verify:` command → refuse the whole loop (form = eligibility).
-BAD="$(grep '^- \[ \]' "$TODO" | grep -v 'verify:' || true)"
+# Gate: any item without a `verify:` command → refuse the whole loop (form = eligibility).
+# Checked items are included: the loop hands the file to an agent every round, and a checked item
+# with no verify clause is exactly what the clause-deletion bypass produces. Requiring the clause on
+# every item is what lets verify-gate run with --require-verify below (no exemption bookkeeping).
+BAD="$(grep -E '^- \[( |x)\]' "$TODO" | grep -v 'verify:' || true)"
 if [ -n "$BAD" ]; then
-  echo "⛔ unchecked items without a 'verify:' command — not loop-eligible (manual/session work):"
+  echo "⛔ items without a 'verify:' command — not loop-eligible (manual/session work):"
   echo "$BAD" | sed 's/^/    /'
   exit 3
 fi
@@ -68,8 +71,9 @@ $(cat "$TODO")
 
   # ★ harness enforces the gate: independently re-run verify for whatever got checked off; revert failures.
   # The agent's claim that "verify passed" is not trusted — a checkbox survives only if the command
-  # actually exits 0 when the harness runs it.
-  "$SCRIPT_DIR/verify-gate" "$TODO" --revert || echo "  ⚠ harness reverted a checked item (its verify did not pass on re-run)"
+  # actually exits 0 when the harness runs it. --require-verify additionally reverts a checked item
+  # whose verify clause went missing, so deleting the clause is not a way out either.
+  "$SCRIPT_DIR/verify-gate" "$TODO" --revert --require-verify || echo "  ⚠ harness reverted a checked item (verify failed on re-run, or its verify clause was missing)"
 
   TOK=0
   if command -v python3 >/dev/null 2>&1; then

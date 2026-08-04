@@ -87,13 +87,19 @@ Run the dev loop two ways (Ralph pattern):
 **Loop-forbidden (belongs to the human/session):** measurement runs, sealing, PASS/KILL judgment. The loop's
 safety comes from the machine-verification gate, not from the loop — it is only as good as your verify commands.
 
-The gate is **harness-enforced, not requested**: after each round the harness runs `bin/verify-gate <TODO> --revert`,
-which independently re-runs the `verify:` command of every checked item and flips any that don't exit 0 back to
-`[ ]`. `ralph` does this automatically; in backend A, the session must run it too. A checkbox survives only if
-its verify command actually passes when the *harness* runs it — the agent's word is not trusted.
+The gate is **harness-enforced, not requested**: after each round the harness runs
+`bin/verify-gate <TODO> --revert --require-verify`, which independently re-runs the `verify:` command of every
+checked item and flips any that don't exit 0 back to `[ ]`. `ralph` does this automatically; **in backend A the
+session must run it too** (MCP: the `verify_gate` tool) — otherwise nothing has been verified but the agent's word.
+
+Scope, honestly: the gate keys on the `verify:` clause, which lives in a file the agent can edit. Deleting the
+clause while ticking the box used to make the item invisible to the gate, so it survived unverified. That is what
+`--require-verify` closes — a checked item with no verify clause is now reverted too, and `ralph` refuses a TODO
+where any item lacks the clause. What remains outside the machine's reach is the *content* of a verify command:
+a command that does not actually test the item will still exit 0. Write commands that can fail.
 
 ## Exits
-- **graduate** (success): `bin/yeoul-graduate` → moves the project out of the incubator, leaves a pointer.
+- **graduate** (success): `bin/graduate` → moves the project out of the incubator, leaves a pointer.
 - **close-project** (retire/reject): `bin/close-project` → archives with a `_CLOSED.md`, freezes open arcs,
   optionally seals the closure. History is preserved — no silent deletion.
 

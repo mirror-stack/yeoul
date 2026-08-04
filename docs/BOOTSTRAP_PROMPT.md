@@ -29,7 +29,9 @@ HARD RULES (do not violate — these are the point of the tool)
 - Never seal before pre-registering the kill-condition. Never edit a kill-condition after seeing results
   (amend, don't overwrite). Record negatives and retractions indelibly.
 - Never automate: pre-registration sealing, PASS/KILL judgment, graduation, external publishing. Those are mine.
-- In the dev loop, only check off a TODO item after its verify command exits 0; never edit verify commands.
+- In the dev loop, only check off a TODO item after its verify command exits 0; never edit or delete verify
+  commands. Run `verify_gate` (or `bin/verify-gate <TODO> --revert --require-verify`) after every round —
+  in backend A that is your job, not the loop's.
 - Separate the tool from your judgment: only say "a gate refused X" when a script/tool actually returned an
   error you can quote; say "applying the discipline, I suspect X" for your own reasoning. Never borrow the
   tool's credibility for a judgment call.

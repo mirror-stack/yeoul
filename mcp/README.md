@@ -23,8 +23,12 @@ Set `YEOUL_BIN` if the `bin/` scripts are not adjacent to the package.
 
 ## Tools
 
-`yeoul_new`, `arc_open`, `arc_ticket`, `loop_guard_init`, `loop_guard_tick`, `arc_close`, `build_handoff`,
-`ralph_gate_check`, `status`, `arc_list`.
+`yeoul_new`, `arc_open`, `arc_ticket`, `loop_guard_init`, `loop_guard_tick`, `arc_close`, `arc_prereg`,
+`build_handoff`, `ralph_gate_check`, `verify_gate`, `status`, `arc_list`.
+
+`arc_prereg` and `verify_gate` are the two enforcement halves that used to be reachable only from the shell:
+linking a seal (so `arc_close` injects the kill-condition verbatim) and re-running a round's verify commands.
+An agent driving Yeoul purely through MCP could not run either — so neither gate held on that path.
 
 Each returns `{exit_code, stdout, stderr}`. A non-zero `exit_code` on `arc_close` (4 = blanks, 5 = KILL-defense)
 or `ralph_gate_check` (3 = ungated item) is an enforced gate, not an error to route around.
