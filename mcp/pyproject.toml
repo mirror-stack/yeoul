@@ -9,7 +9,10 @@ classifiers = [
   "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = [
-  "mcp>=1.0.0",
+  # Upper bound is deliberate: the server imports `mcp.server.fastmcp`, which mcp 2.x no longer
+  # exposes at that path. An unbounded floor let CI silently install the new major and break the
+  # import. Lift this only together with the 2.x import path.
+  "mcp>=1.0.0,<2",
 ]
 
 [project.scripts]
