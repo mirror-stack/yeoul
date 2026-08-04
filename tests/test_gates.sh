@@ -83,6 +83,32 @@ printf -- '- [x] decoy. verify: `false` verify: `true`\n' > "$T3"
 "$BIN/verify-gate" "$T3" --revert >/dev/null 2>&1
 grep -q '^- \[ \] decoy' "$T3" && echo "  ✓ decoy double-verify reverted (first block wins)" || { echo "  ✗ decoy passed (greedy bug)"; FAIL=1; }
 
+# --- index-append: the conclusion must survive any list style, and a miss must be loud ---
+# Regression: the extractor used to assume a `- ` bullet, so a numbered list silently indexed
+# an empty conclusion while still logging success. Observed in the wild, not hypothetical.
+IDX_ARC="$WS/idx_arc"; mkdir -p "$IDX_ARC"; export YEOUL_INDEX="$WS/KI.md"
+idx_case() { # idx_case <desc> <first-line-of-section> <expected-substring>
+  rm -f "$YEOUL_INDEX"
+  printf '# close\n- **Closed**: 2026-01-01\n- **stop_reason**: converged\n- **Verdict**: v\n\n## What was closed\n%s\n\n## Evidence\n- none\n' \
+    "$2" > "$IDX_ARC/_SUMMARY_idx_arc.md"
+  "$BIN/index-append" "$IDX_ARC" >/dev/null 2>&1
+  grep -qF "$3" "$YEOUL_INDEX" && echo "  ✓ index-append: $1" || { echo "  ✗ index-append: $1 — '$3' not indexed"; FAIL=1; }
+}
+idx_case "bullet list"        '- bullet conclusion'   '**Closed**: bullet conclusion'
+idx_case "numbered list"      '1. numbered conclusion' '**Closed**: numbered conclusion'
+idx_case "paren-numbered"     '1) paren conclusion'    '**Closed**: paren conclusion'
+idx_case "bold-numbered kept" '**1. bold conclusion**' '**Closed**: **1. bold conclusion**'
+idx_case "leading blockquote" '> note line
+- after the quote'                                     '**Closed**: after the quote'
+# a genuine miss must be visible in the output, not silent
+rm -f "$YEOUL_INDEX"
+printf '# close\n- **Closed**: 2026-01-01\n- **stop_reason**: converged\n- **Verdict**: v\n\n## Evidence\n- none\n' \
+  > "$IDX_ARC/_SUMMARY_idx_arc.md"
+"$BIN/index-append" "$IDX_ARC" 2>&1 | grep -q "could not extract" \
+  && echo "  ✓ index-append warns loudly when extraction misses" \
+  || { echo "  ✗ index-append failed silently"; FAIL=1; }
+"$BIN/index-append" "$IDX_ARC" >/dev/null 2>&1; assert "index-append never blocks the close" 0 $?
+
 echo
 if [ "$FAIL" -eq 0 ]; then echo "✅ all gate tests passed"; else echo "⛔ gate tests FAILED"; fi
 exit "$FAIL"
