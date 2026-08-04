@@ -28,11 +28,21 @@ t=open(sys.argv[1],encoding='utf-8',errors='ignore').read()
 m=re.search(r'\*\*Verdict\*\*:\s*(.+)',t); print((m.group(1).strip() if m else '-')[:160])
 PY
 )"
+# The old regex assumed the first item was a `- ` bullet, so a numbered list (`1. …`) matched
+# nothing → '-'. The close still succeeded and the log still printed "appended" — the failure
+# was invisible. Take the section's first substantive line and strip only the list marker.
 CLOSED="$(python3 - "$SUM" <<'PY'
 import re,sys
 t=open(sys.argv[1],encoding='utf-8',errors='ignore').read()
-m=re.search(r'##\s*What was closed[^\n]*\n(?:>.*\n)*-\s*(.+)',t)
-print((m.group(1).strip() if m else '-')[:240])
+m=re.search(r'##\s*What was closed[^\n]*\n(.*?)(?=\n##\s|\Z)', t, re.S)
+out='-'
+if m:
+    for ln in m.group(1).split('\n'):
+        s=ln.strip()
+        if not s or s.startswith('>'): continue
+        s=re.sub(r'^(?:[-*+]|\d+[.)])\s+','',s).strip()   # list marker only ( `**1.` is content )
+        if s: out=s; break
+print(out[:240])
 PY
 )"
 
@@ -53,3 +63,7 @@ REL="${ARC_DIR#"$SCRIPT_DIR"/../}"
   printf -- '- source: %s\n\n' "$REL"
 } >> "$INDEX"
 echo "  📚 knowledge index appended: ${INDEX}"
+# Never fail silently: if the conclusion could not be extracted, say so next to the success line.
+# Still best-effort — this must not block the close.
+[ "$CLOSED" = "-" ] && echo "  ⚠️ could not extract 'What was closed' → entry indexed empty. Check the _SUMMARY format and fill this row by hand: $SUM"
+exit 0
