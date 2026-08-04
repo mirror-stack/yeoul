@@ -49,7 +49,7 @@ jobs:
           tools = [n for n in dir(server) if n in (
               'yeoul_new','arc_open','arc_ticket','loop_guard_init','loop_guard_tick',
               'arc_close','build_handoff','ralph_gate_check','arc_prereg','verify_gate',
-    'status','arc_list')]
+              'status','arc_list')]
           assert len(tools) == 12, tools
           print("yeoul-mcp OK — 12 tools")
           PY
