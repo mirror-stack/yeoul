@@ -64,6 +64,9 @@ New to the method? Read [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md), then paste
 - **2-phase close** — closing drafts a summary; it only seals once the blanks are filled.
 - **KILL-defense 5-check** — a "failed" verdict cannot be sealed until anchor-reproduction, ≥2 independent
   angles, implementation-defect ruled out, catalog cross-check, and verbatim kill-wording are all recorded.
+- **Sealed-condition cross-check** — if a pre-registered kill-condition is linked to the arc, closing always
+  has to answer it, *whatever the close is labelled*. Otherwise closing as `converged` would switch off the
+  only signal the closing agent did not write. A seal that no longer resolves is refused, not skipped.
 - **Verify-gated dev loop** — each automated development round advances one TODO item and may only check it
   off after its own machine verification command exits 0, re-run by the harness rather than reported by the
   agent. Items without a verify command are refused — including checked ones, so deleting the clause is not

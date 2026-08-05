@@ -6,7 +6,8 @@ All notable changes to this project are documented here.
 
 Initial extraction of the Yeoul harness (de-personalized structure only).
 
-- **Deliberation engine**: `arc-open`/`arc-close` (2-phase close with blank-refusal + KILL-defense 5-check),
+- **Deliberation engine**: `arc-open`/`arc-close` (2-phase close with blank-refusal + KILL-defense 5-check
+  + a label-independent sealed-condition cross-check whenever a prereg seal is linked),
   ticket/attach/watch/list/roles/join relay helpers, `loop-guard` (round/token/no-progress bounds).
 - **Lifecycle**: `yeoul-new`, `build-handoff` (verify-gated TODO), `ralph` (autonomous dev loop with a
   verify-gate), `graduate`, `close-project`, `status`.

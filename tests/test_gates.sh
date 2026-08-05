@@ -62,6 +62,46 @@ sedi 's/^- \*\*Implementation.*/- **Implementation defect ruled out**: mechanism
 sedi 's/^- \*\*Catalog.*/- **Catalog cross-check**: none/' "$SSUM"
 "$BIN/arc-close" "$SARC" "KILL — sealed" --stop=falsified >/dev/null 2>&1; assert "sealed close seals once verbatim intact + filled" 0 $?
 
+# --- the sealed anchor must not depend on the label the closing agent writes ---
+# Regression: a `converged` close used to switch the injection off entirely, so a sealed arc could be
+# closed as a PASS with the pre-registered bar never mentioned. The label is agent-written; the seal is not.
+"$BIN/arc-open" pv --topic="sealed pass" --arcs-dir="$WS/arcs" >/dev/null 2>&1
+PARC="$(ls -d "$WS"/arcs/*_pv)"
+YEOUL_LEDGER="$LEDGER" "$BIN/arc-prereg" "$PARC" c1 >/dev/null 2>&1
+"$BIN/arc-close" "$PARC" "converged — design settled" --stop=converged >/dev/null 2>&1   # draft
+PSUM="$(ls "$PARC"/_SUMMARY_*.md)"
+grep -qF "effect size d < 0.2 over >= 3 seeds" "$PSUM" \
+  && echo "  ✓ sealed condition injected on a non-KILL close too" \
+  || { echo "  ✗ non-KILL close skipped the sealed condition"; FAIL=1; }
+sedi 's/- (fill in)/- concrete conclusion/' "$PSUM"
+"$BIN/arc-close" "$PARC" "converged — design settled" --stop=converged >/dev/null 2>&1; assert "PASS close refuses while the cross-check is unfilled" 5 $?
+sedi 's/(unfilled)/yes/' "$PSUM"
+"$BIN/arc-close" "$PARC" "converged — design settled" --stop=converged >/dev/null 2>&1; assert "PASS close refuses a trivial cross-check answer" 5 $?
+sedi 's/^- \*\*Result triggers.*/- **Result triggers the sealed condition?**: no — measured d = 0.61, well clear of the 0.2 bar/' "$PSUM"
+sedi 's/^  > effect size.*/  > effect size d < 0.9 (widened)/' "$PSUM"
+"$BIN/arc-close" "$PARC" "converged — design settled" --stop=converged >/dev/null 2>&1; assert "PASS close refuses a widened sealed line" 5 $?
+sedi 's/^  > effect size.*/  > effect size d < 0.2 over >= 3 seeds/' "$PSUM"
+"$BIN/arc-close" "$PARC" "converged — design settled" --stop=converged >/dev/null 2>&1; assert "PASS close seals once the cross-check is answered" 0 $?
+
+# a .prereg that no longer resolves is a silent way around the gate — it must be refused, not skipped
+"$BIN/arc-open" br --topic="broken anchor" --arcs-dir="$WS/arcs" >/dev/null 2>&1
+BARC="$(ls -d "$WS"/arcs/*_br)"
+printf 'c1\n%s\n' "$LEDGER" > "$BARC/.prereg"
+"$BIN/arc-close" "$BARC" "converged — ok" --stop=converged >/dev/null 2>&1   # draft
+BSUM="$(ls "$BARC"/_SUMMARY_*.md)"
+sedi 's/- (fill in)/- concrete conclusion/' "$BSUM"
+sedi 's/^- \*\*Result triggers.*/- **Result triggers the sealed condition?**: no — measured d = 0.61, clear of the bar/' "$BSUM"
+printf 'c_typo\n%s\n' "$LEDGER" > "$BARC/.prereg"     # anchor now unresolvable
+"$BIN/arc-close" "$BARC" "converged — ok" --stop=converged >/dev/null 2>&1; assert "broken .prereg anchor is refused, not silently skipped" 5 $?
+
+# positive control: an arc with no seal at all still closes normally (we tightened, not bricked)
+"$BIN/arc-open" ns --topic="no seal" --arcs-dir="$WS/arcs" >/dev/null 2>&1
+NARC="$(ls -d "$WS"/arcs/*_ns)"
+"$BIN/arc-close" "$NARC" "converged — design settled" --stop=converged >/dev/null 2>&1   # draft
+NSUM="$(ls "$NARC"/_SUMMARY_*.md)"
+sedi 's/- (fill in)/- concrete conclusion/' "$NSUM"
+"$BIN/arc-close" "$NARC" "converged — design settled" --stop=converged >/dev/null 2>&1; assert "unsealed PASS close is unaffected" 0 $?
+
 # --- ralph verify-gate ---
 "$BIN/yeoul-new" p --no-arc >/dev/null 2>&1
 printf -- '- [ ] no verify command here\n' > "$WS/projects/p/dev/TODO.md"

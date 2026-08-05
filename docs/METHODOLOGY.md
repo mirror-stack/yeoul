@@ -54,15 +54,28 @@ Each round, the relay summarizes and judges. **Every round summary must include 
 call, not the guard's job. **More rounds do not improve quality** — the guards exist because debate drifts.
 
 Close with `bin/arc-close` (2-phase): it drafts a summary; you fill the blanks; re-running seals only when
-they're filled. A **falsified/KILL** close additionally requires the **🛡️ KILL-defense 5-check**:
+they're filled. A **falsified/KILL** close (and only that close) additionally requires the **🛡️ KILL-defense 5-check**:
 anchor (positive control) reproduced · ≥2 independent angles converged · implementation defect ruled out ·
 catalog cross-check · verbatim kill-wording. This is the anti-premature-closure gate.
 
 **Sealed kill-condition injection.** If you sealed the kill-condition (mirror-stack `mm_preregister`) and
-linked it to the arc (`bin/arc-prereg <arc_dir> <claim_id> [ledger]`), the KILL-defense check no longer asks
-the agent to *type* whether the verdict matches the pre-registration. Instead the harness reads the sealed
-kill-condition from the ledger and **injects it verbatim** into the record; on close it refuses if that line
-was edited. The agent is not the author of the condition, so it cannot be silently widened at close.
+linked it to the arc (`bin/arc-prereg <arc_dir> <claim_id> [ledger]`), the check no longer asks the agent to
+*type* whether the verdict matches the pre-registration. Instead the harness reads the sealed kill-condition
+from the ledger and **injects it verbatim** into the record; on close it refuses if that line was edited or
+removed. The agent is not the author of the condition, so it cannot be silently widened at close.
+
+This injection is **independent of how the close is labelled**. That matters more than it sounds: the label
+(`--stop`, the verdict string) is written by the closing agent at closing time, so keying the anchor to it
+would let a `converged` close switch off the one signal the agent cannot author. So a linked seal always
+produces a check — the 🛡️ 5-check on a KILL close, and on any other close a one-item **🔒 sealed-condition
+cross-check**: *did the result stay clear of the bar you sealed, or did you move the bar?* A `.prereg` whose
+condition can no longer be read is treated as a broken anchor and refused rather than passed in silence.
+
+We considered instead triggering on the word "KILL" appearing anywhere in the summary. Measured against our
+own archive it was wrong in both directions — it fired on citations of other arcs' seals and on kill-conditions
+being *designed* for the next stage (3 of 4 hits), while the closes that actually buried an original claim
+never used the word at all. It would also have taxed exactly the honest reporting we want. A trigger the
+examinee writes is not a trigger; anchoring on the seal is the only signal here that predates the close.
 Scope, honestly: this fixes the *condition* by reference — whether the result actually triggers it remains a
 judgment the agent asserts, and this is **not** "machine-verified honesty", only a removed goalpost. Without a
 linked seal the field stays attestation-only and the close is stamped `⚠️ UNSEALED` — the missing seal is itself
