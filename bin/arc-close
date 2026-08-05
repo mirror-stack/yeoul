@@ -2,7 +2,9 @@
 set -euo pipefail
 # arc-close <arc_dir> "<one-line verdict>" [--stop=falsified|no-progress|converged|<other>]
 #   ★2-phase close: 1st run drafts _SUMMARY only (no seal) → fill blanks → re-run gate-checks & archives.
-#   Gates: ① "(fill in)" left  = refuse   ② falsified/KILL → KILL-defense 5-check ("(unfilled)" left = refuse)
+#   Gates: ① "(fill in)" left = refuse   ② falsified/KILL → KILL-defense 5-check ("(unfilled)" left = refuse)
+#          ③ a linked .prereg seal → 🔒 sealed-condition cross-check fires REGARDLESS of the label (PASS closes too);
+#            a .prereg whose condition cannot be read is a broken anchor and is refused. Both paths share one bar.
 #   → guards against premature closure. Then STATE records CLOSED, _SUMMARY is sealed, arc moves to ../_archive/.
 #   ★stop_reason distinguishes 'falsified' vs 'no-progress' vs 'converged' (generic ⇒ no-progress only).
 #   ★Optional: seal the close into an append-only ledger (mirror-stack `am`, content-hash = _SUMMARY). Best-effort.
@@ -65,6 +67,23 @@ if [ -f "$PREREG" ]; then
   SEAL_KILL="$(extract_kill "$SEAL_LEDGER" "$SEAL_CLAIM")"
 fi
 
+# ── An external anchor must not depend on a label the examinee writes ──────────────────
+# The defect: even when a sealed kill-condition existed, nothing was injected or checked
+# unless IS_KILL was set. IS_KILL comes from `--stop` and the verdict string — both written
+# by the closing agent, at closing time. So the one signal the examinee cannot author (a
+# condition sealed in an append-only ledger *before* the compute) was gated behind one they
+# could. Closing as a PASS switched the anchor off.
+# The fix: SEAL_GATE keys off the sealed condition existing — never off the label.
+#   KILL close  → full 🛡️ 5-check (anti-premature-closure: "did you kill it too early?")
+#   other close → 🔒 sealed-condition cross-check, one item (the mirror question:
+#                 "did the result actually stay clear of the bar you sealed — or did you move it?")
+# Note: triggering on the word "KILL" appearing in the body was considered and rejected — on the
+# archive it misfired on 3 of 4 (citations of other arcs' seals, kill-conditions being *designed*)
+# while missing the closes that mattered, which never use the word at all.
+SEAL_GATE="no"; [ -n "$SEAL_KILL" ] && SEAL_GATE="yes"
+# A .prereg that no longer resolves is a silent way around the gate. Never pass it in silence.
+SEAL_BROKEN="no"; [ -f "$PREREG" ] && [ -z "$SEAL_KILL" ] && SEAL_BROKEN="yes"
+
 emit_kill_defense() { # KILL-defense section: sealed → inject verbatim condition; unsealed → attestation-only
   echo ""
   echo "## 🛡️ KILL-defense check (anti-premature-closure — all must be filled to seal)"
@@ -82,6 +101,39 @@ emit_kill_defense() { # KILL-defense section: sealed → inject verbatim conditi
   echo "- **Independent angles converged (≥2)**: (unfilled) ← evidence you did not close on a single angle's negative alone."
   echo "- **Implementation defect ruled out**: (unfilled) ← the mechanism was implemented correctly (a sloppy impl losing ≠ mechanism useless)."
   echo "- **Catalog cross-check**: (unfilled) ← known measurement-illusion pattern? (catalog id, or 'none')."
+}
+
+emit_seal_check() { # non-KILL close with a seal linked — cross-check it regardless of the label
+  echo ""
+  echo "## 🔒 Sealed-condition cross-check (label-independent — fires whenever .prereg is linked)"
+  echo "**Sealed kill-condition** (verbatim from seal \`$SEAL_CLAIM\` — harness-injected, do not edit):"
+  printf '  > %s\n' "$SEAL_KILL"
+  echo "- **Result triggers the sealed condition?**: (unfilled) ← if it does, this close should be a KILL. If it does not, give the evidence (number / seal). Do not answer by rewriting the condition (goalpost move)."
+}
+
+# Trivial-evasion check. Both paths share ONE bar — kept apart, they drift (proved 2026-08-05:
+# the same answer sealed internally and was refused by this file).
+check_answers() { # check_answers <section start marker>
+  while IFS= read -r vline; do
+    case "$vline" in "- **"*"**:"*) ;; *) continue ;; esac
+    vlabel="$(printf '%s' "$vline" | sed -E 's/^- \*\*([^*]+)\*\*.*/\1/')"
+    # answer extraction via python (Unicode-safe — sed's multibyte ← match is locale-fragile)
+    vans="$(printf '%s' "$vline" | python3 -c 'import sys,re; s=sys.stdin.read(); s=re.sub(r"^- \*\*[^*]+\*\*:\s*","",s); s=re.sub(r"\s*←.*$","",s); sys.stdout.write(s.strip())')"
+    vlow="$(printf '%s' "$vans" | tr '[:upper:]' '[:lower:]')"
+    case "$vlow" in ""|y|yes|ok|okay|na|n/a|done|.|-|x|pass|true|good|yep|sure|n)
+      echo "⛔ seal refused: '$vlabel' answer too trivial: '$vans'"; exit 5 ;;
+    esac
+    case "$vlabel" in
+      *[Cc]atalog*)  # a catalog id, or the literal 'none'
+        case "$vlow" in none) : ;; *) printf '%s' "$vans" | grep -qE '[A-Za-z0-9_]{3,}' \
+          || { echo "⛔ seal refused: catalog cross-check needs a catalog id or 'none': '$vans'"; exit 5; } ;; esac ;;
+      *[Aa]nchor*)   # a number, or a seal/reproduction reference
+        printf '%s' "$vlow" | grep -qE '[0-9]|seal|anchor|reproduc|converg|hash' \
+          || { echo "⛔ seal refused: anchor answer needs a number or a seal/reproduction reference: '$vans'"; exit 5; } ;;
+      *)             # otherwise require a little substance
+        [ "${#vans}" -ge 6 ] || { echo "⛔ seal refused: '$vlabel' answer too short: '$vans'"; exit 5; } ;;
+    esac
+  done < <(sed -n "/$1/,\$p" "$SUMMARY")
 }
 
 SUMMARY="$ARC_DIR/_SUMMARY_${ARC}.md"
@@ -108,11 +160,18 @@ if [ ! -f "$SUMMARY" ]; then
 
 > Discipline: negatives and retractions are recorded indelibly. Numbers only after checking against evidence.
 MDEOF
-  [ "$IS_KILL" = "yes" ] && emit_kill_defense >> "$SUMMARY"
+  if [ "$IS_KILL" = "yes" ]; then emit_kill_defense >> "$SUMMARY"
+  elif [ "$SEAL_GATE" = "yes" ]; then emit_seal_check >> "$SUMMARY"; fi
   echo "📝 _SUMMARY drafted (not sealed): $SUMMARY"
-  [ "$IS_KILL" = yes ] && [ -n "$SEAL_KILL" ] && echo "   🔒 sealed kill-condition injected from seal $SEAL_CLAIM (not agent-authored)."
-  [ "$IS_KILL" = yes ] && [ -z "$SEAL_KILL" ] && echo "   ⚠️ UNSEALED — no prereg linked (arc-prereg); kill-wording is attestation-only."
-  echo "   Fill the blanks (fill in$([ "$IS_KILL" = yes ] && echo ' / unfilled')), then re-run the same command to gate-check and archive."
+  if [ "$SEAL_GATE" = "yes" ]; then
+    echo "   🔒 sealed kill-condition injected from seal $SEAL_CLAIM (not agent-authored)."
+    [ "$IS_KILL" = "yes" ] || echo "      note: not a KILL close, but a seal is linked — the 🔒 cross-check fires regardless of the label."
+  elif [ "$SEAL_BROKEN" = "yes" ]; then
+    echo "   🔴 .prereg is linked but its kill_condition could not be read — anchor broken (claim=$SEAL_CLAIM, ledger=$SEAL_LEDGER)."
+  elif [ "$IS_KILL" = "yes" ]; then
+    echo "   ⚠️ UNSEALED — no prereg linked (arc-prereg); kill-wording is attestation-only."
+  fi
+  echo "   Fill the blanks (fill in$([ "$IS_KILL" = yes ] || [ "$SEAL_GATE" = yes ] && echo ' / unfilled')), then re-run the same command to gate-check and archive."
   exit 0
 fi
 
@@ -122,15 +181,24 @@ if grep -q '(fill in)' "$SUMMARY"; then
   grep -n 'fill in' "$SUMMARY" | sed 's/^/    /'
   exit 4
 fi
+# A broken anchor is a silent way around the gate — refuse rather than pass quietly.
+if [ "$SEAL_BROKEN" = "yes" ]; then
+  echo "⛔ seal refused: .prereg is linked but its sealed kill-condition could not be read — anchor broken."
+  echo "    claim=$SEAL_CLAIM · ledger=$SEAL_LEDGER"
+  echo "    Re-link with arc-prereg, or remove .prereg deliberately if there really is no seal (both are auditable acts)."
+  exit 5
+fi
+
+# ① the harness owns the sealed-condition line — it must remain verbatim (no silent widening). Both paths.
+if [ "$SEAL_GATE" = "yes" ] && ! grep -qxF "  > $SEAL_KILL" "$SUMMARY"; then
+  echo "⛔ seal refused: the harness-injected sealed kill-condition line was edited or removed — it must stay verbatim from seal \`$SEAL_CLAIM\`."
+  exit 5
+fi
+
 if [ "$IS_KILL" = "yes" ]; then
   if ! grep -q 'KILL-defense check' "$SUMMARY"; then
     emit_kill_defense >> "$SUMMARY"
     echo "⛔ seal refused: KILL-type close without a 🛡️ KILL-defense check — section added. Fill it and re-run."
-    exit 5
-  fi
-  # ① the harness owns the sealed-condition line — it must remain the verbatim seal (no silent widening)
-  if [ -n "$SEAL_KILL" ] && ! grep -qxF "  > $SEAL_KILL" "$SUMMARY"; then
-    echo "⛔ seal refused: the harness-injected sealed kill-condition line was edited — it must stay verbatim from seal \`$SEAL_CLAIM\`."
     exit 5
   fi
   if grep -q '(unfilled)' "$SUMMARY"; then
@@ -138,27 +206,20 @@ if [ "$IS_KILL" = "yes" ]; then
     grep -n 'unfilled' "$SUMMARY" | sed 's/^/    /'
     exit 5
   fi
-  # minimal substance check — can't judge truth, but reject self-evident evasions (a bare "yes", ".", etc.)
-  while IFS= read -r vline; do
-    case "$vline" in "- **"*"**:"*) ;; *) continue ;; esac
-    vlabel="$(printf '%s' "$vline" | sed -E 's/^- \*\*([^*]+)\*\*.*/\1/')"
-    # answer extraction via python (Unicode-safe — sed's multibyte ← match is locale-fragile)
-    vans="$(printf '%s' "$vline" | python3 -c 'import sys,re; s=sys.stdin.read(); s=re.sub(r"^- \*\*[^*]+\*\*:\s*","",s); s=re.sub(r"\s*←.*$","",s); sys.stdout.write(s.strip())')"
-    vlow="$(printf '%s' "$vans" | tr '[:upper:]' '[:lower:]')"
-    case "$vlow" in ""|y|yes|ok|okay|na|n/a|done|.|-|x|pass|true|good|yep|sure|n)
-      echo "⛔ seal refused: KILL-defense '$vlabel' answer too trivial: '$vans'"; exit 5 ;;
-    esac
-    case "$vlabel" in
-      *[Cc]atalog*)  # a catalog id, or the literal 'none'
-        case "$vlow" in none) : ;; *) printf '%s' "$vans" | grep -qE '[A-Za-z0-9_]{3,}' \
-          || { echo "⛔ seal refused: catalog cross-check needs a catalog id or 'none': '$vans'"; exit 5; } ;; esac ;;
-      *[Aa]nchor*)   # a number, or a seal/reproduction reference
-        printf '%s' "$vlow" | grep -qE '[0-9]|seal|anchor|reproduc|converg|hash' \
-          || { echo "⛔ seal refused: anchor answer needs a number or a seal/reproduction reference: '$vans'"; exit 5; } ;;
-      *)             # otherwise require a little substance
-        [ "${#vans}" -ge 6 ] || { echo "⛔ seal refused: KILL-defense '$vlabel' answer too short: '$vans'"; exit 5; } ;;
-    esac
-  done < <(sed -n '/KILL-defense check/,$p' "$SUMMARY")
+  check_answers 'KILL-defense check'
+elif [ "$SEAL_GATE" = "yes" ]; then
+  # non-KILL close with a seal linked — the cross-check fires independently of the label
+  if ! grep -q 'Sealed-condition cross-check' "$SUMMARY"; then
+    emit_seal_check >> "$SUMMARY"
+    echo "⛔ seal refused: a seal (.prereg) is linked but the 🔒 sealed-condition cross-check is missing — section added. Fill it and re-run."
+    exit 5
+  fi
+  if grep -q '(unfilled)' "$SUMMARY"; then
+    echo "⛔ seal refused: 🔒 sealed-condition cross-check unfilled — state whether the result met the bar you sealed."
+    grep -n 'unfilled' "$SUMMARY" | sed 's/^/    /'
+    exit 5
+  fi
+  check_answers 'Sealed-condition cross-check'
 fi
 
 echo "ARC_CLOSED ${TODAY} stop=${STOP} — ${VERDICT}" >> "$ARC_DIR/STATE.md"

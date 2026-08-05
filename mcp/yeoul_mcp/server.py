@@ -90,9 +90,12 @@ def loop_guard_init(arc_dir: str, max_rounds: int = 3, token_budget: int = 20000
 
 @mcp.tool()
 def arc_close(arc_dir: str, verdict: str, stop: str = "converged") -> dict:
-    """Close an arc (2-phase, GATE-ENFORCED). 1st call drafts _SUMMARY; fill blanks (+ KILL-defense 5-check
-    if stop=falsified) then call again to seal. Returns the script's refusal (exit 4 blanks / exit 5 KILL-defense)
-    if not ready — that refusal is authoritative, do not override it."""
+    """Close an arc (2-phase, GATE-ENFORCED). 1st call drafts _SUMMARY; fill the blanks, then call again to seal.
+    Extra sections are required depending on the close: a KILL close (stop=falsified, or KILL in the verdict) gets
+    the 🛡️ 5-check; ANY close on an arc with a linked prereg seal gets the 🔒 sealed-condition cross-check —
+    that one fires regardless of the label, so closing as `converged` does not switch the anchor off.
+    Returns the script's refusal (exit 4 blanks / exit 5 gate) if not ready — that refusal is authoritative,
+    do not override it."""
     return _run("arc-close", arc_dir, verdict, f"--stop={stop}")
 
 
