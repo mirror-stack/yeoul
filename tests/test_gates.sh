@@ -165,6 +165,121 @@ printf '# close\n- **Closed**: 2026-01-01\n- **stop_reason**: converged\n- **Ver
   || { echo "  ✗ index-append failed silently"; FAIL=1; }
 "$BIN/index-append" "$IDX_ARC" >/dev/null 2>&1; assert "index-append never blocks the close" 0 $?
 
+# --- encoding damage must FAIL CLOSED (regression: 2026-08-24 Windows/CP949 field report) ---
+# What happened: on Windows the UTF-8 bytes were decoded as CP949, so the `←` hint marker
+# survived the strip. The answer "yes" then arrived as a 43-char string wearing the hint as
+# its body — it matched no entry in the trivial list AND cleared the >=6 length check, so the
+# arc SEALED. The block above already keeps a `←` hint to exercise extraction, but it runs in
+# a UTF-8 locale, so it could never fire. We inject the damage directly: this now fails on any
+# platform, not only on the one where it was found.
+"$BIN/arc-open" enc --topic="encoding gate" --arcs-dir="$WS/arcs" >/dev/null 2>&1
+EARC="$(ls -d "$WS"/arcs/*_enc)"
+"$BIN/arc-close" "$EARC" "KILL — enc" --stop=falsified >/dev/null 2>&1
+ESUM="$(ls "$EARC"/_SUMMARY_*.md)"
+sedi 's/- (fill in)/- concrete conclusion here/' "$ESUM"
+sedi 's/(unfilled)/yes/g' "$ESUM"
+python3 - "$ESUM" <<'PYDAMAGE'
+import sys
+p = sys.argv[1]
+out = []
+for line in open(p, encoding="utf-8"):
+    # only the answer lines get mis-decoded; ASCII structure survives CP949 either way
+    if line.startswith("- **"):
+        line = line.encode("utf-8").decode("cp949", "replace")
+    out.append(line)
+open(p, "w", encoding="utf-8").write("".join(out))
+PYDAMAGE
+# the damage must actually have landed — otherwise every check below passes vacuously
+grep -q "$(printf '\357\277\275')" "$ESUM" \
+  && echo "  ✓ damage injected (replacement chars present)" \
+  || { echo "  ✗ damage did NOT land — the checks below would pass for the wrong reason"; FAIL=1; }
+# run the gate ONCE and judge both the code and the reason from the same run
+ENCOUT="$("$BIN/arc-close" "$EARC" "KILL — enc" --stop=falsified 2>&1)"; ENCRC=$?
+assert "encoding damage fails closed (never seals)" 5 "$ENCRC"
+ls -d "$WS/arcs/_archive"/*_enc >/dev/null 2>&1 \
+  && { echo "  ✗ SEALED despite unreadable answers"; FAIL=1; } \
+  || echo "  ✓ damaged arc not archived"
+# and the refusal must say WHY — "could not judge" is not "refused on the merits"
+case "$ENCOUT" in
+  *"not readable as UTF-8"*) echo "  ✓ refusal names the encoding damage" ;;
+  *) echo "  ✗ refused for another reason: $(printf '%s' "$ENCOUT" | tail -1)"; FAIL=1 ;;
+esac
+
+# --- substance check: the CLASS, not just the CP949 case (2026-08-24) ---
+# The block above pinned one *case* (encoding damage). The class is wider: the substance check
+# was `[ ${#vans} -ge 6 ]`, so ANY >=6-char non-answer sealed. Measured before the repair:
+# 28 of 28 evasive answers sealed. These assertions pin the class in BOTH directions — a
+# repair that only tightened would pass the top half and quietly reject real answers.
+SUBSTANCE="$BIN/substance_check.py"
+python3 "$SUBSTANCE" --selftest >/dev/null 2>&1; assert "substance checker passes its own positive control" 0 $?
+echo "    $(python3 "$SUBSTANCE" --selftest 2>&1 | tail -1)"   # 🔴 print the denominator, not just green
+
+subst_case() { # subst_case <desc> <answer> <expected-exit>
+  "$BIN/arc-open" sc --topic="substance" --arcs-dir="$WS/arcs" >/dev/null 2>&1
+  local A; A="$(ls -d "$WS"/arcs/*_sc)"
+  "$BIN/arc-close" "$A" "KILL — sc" --stop=falsified >/dev/null 2>&1
+  local S; S="$(ls "$A"/_SUMMARY_*.md)"
+  sedi 's/- (fill in)/- concrete conclusion here/' "$S"
+  # anchor/catalog have their own branches; drive the general branch with the candidate
+  python3 - "$S" "$2" <<'PYFILL'
+import sys, re
+p, ans = sys.argv[1], sys.argv[2]
+out = []
+for line in open(p, encoding="utf-8"):
+    if "(unfilled)" in line and line.startswith("- **"):
+        label = re.match(r"^- \*\*([^*]+)\*\*", line).group(1)
+        hint = " ←" + line.split("←", 1)[1].rstrip("\n") if "←" in line else ""
+        if "Anchor" in label:    body = "anchor reproduced 3x (seal 84007e65)"
+        elif "Catalog" in label: body = "vacuous_pass"
+        else:                    body = ans
+        out.append(f"- **{label}**: {body}{hint}\n"); continue
+    out.append(line)
+open(p, "w", encoding="utf-8").write("".join(out))
+PYFILL
+  "$BIN/arc-close" "$A" "KILL — sc" --stop=falsified >/dev/null 2>&1
+  assert "$1" "$3" $?
+  rm -rf "$A" "$WS/arcs/_archive/$(basename "$A")" 2>/dev/null
+}
+# must be REFUSED (5) — each cleared the old >=6-char bar and sealed
+subst_case "evasive 'aaaaaa' refused"          'aaaaaa'          5
+subst_case "evasive 'yes yes' refused"         'yes yes'         5
+subst_case "evasive 'yes ok' refused"          'yes ok'          5
+subst_case "evasive 'qwerty' refused"          'qwerty'          5
+subst_case "evasive '......' refused"          '......'          5
+subst_case "deferral 'TODO later' refused"     'TODO later'      5
+# must still SEAL (0) — the counter-accident: raising a length bar would reject these
+subst_case "short genuine answer still seals"  'd=0.05 < 0.2, under the sealed bar' 0
+subst_case "genuine answer carrying a deferral CLAUSE still seals" \
+           'not run — the face arm is absent so no anchor could be formed; recorded as verdict-void' 0
+
+# --- the positive control must be LOAD-BEARING, not decorative ---
+# A documented fallback is untested code. Sabotage the checker so it can never say no, then
+# assert the gate REFUSES TO INTERPRET (exit 6) instead of sealing an evasive answer.
+SBIN="$(mktemp -d)"; cp "$BIN"/* "$SBIN/" 2>/dev/null
+python3 - "$SBIN/substance_check.py" <<'PYSAB'
+import sys
+p = sys.argv[1]; s = open(p, encoding="utf-8").read()
+i = s.index("def judge(label, ans):")
+s = s[:i] + 'def judge(label, ans):\n    return "OK", ans\n\ndef _judge_disabled(label, ans):\n' + s[i + len("def judge(label, ans):\n"):]
+open(p, "w", encoding="utf-8").write(s)
+PYSAB
+# the sabotage must actually have landed, or every assertion below passes vacuously
+python3 "$SBIN/substance_check.py" --selftest >/dev/null 2>&1 \
+  && { echo "  ✗ sabotage did NOT land — the checks below would pass for the wrong reason"; FAIL=1; } \
+  || echo "  ✓ sabotage landed (checker can no longer fail a planted violation)"
+"$SBIN/arc-open" sb --topic="sabotage" --arcs-dir="$WS/arcs" >/dev/null 2>&1
+SBARC="$(ls -d "$WS"/arcs/*_sb)"
+"$SBIN/arc-close" "$SBARC" "KILL — sb" --stop=falsified >/dev/null 2>&1
+SBSUM="$(ls "$SBARC"/_SUMMARY_*.md)"
+sedi 's/- (fill in)/- concrete conclusion here/' "$SBSUM"
+sedi 's/(unfilled)/yes ok/g' "$SBSUM"
+"$SBIN/arc-close" "$SBARC" "KILL — sb" --stop=falsified >/dev/null 2>&1
+assert "broken checker => gate refuses to interpret (does not seal)" 6 $?
+ls -d "$WS/arcs/_archive"/*_sb >/dev/null 2>&1 \
+  && { echo "  ✗ SEALED while the checker was broken"; FAIL=1; } \
+  || echo "  ✓ nothing archived while the instrument was broken"
+rm -rf "$SBIN"
+
 echo
 if [ "$FAIL" -eq 0 ]; then echo "✅ all gate tests passed"; else echo "⛔ gate tests FAILED"; fi
 exit "$FAIL"

@@ -33,8 +33,19 @@ jobs:
         run: bash setup/pre-publish-check.sh
 
   # Build + import the MCP server in a clean env — catches "works in the repo, broken on install".
+  #
+  # 🔴 Windows is in this matrix on purpose. The 2026-08-24 field report that produced the
+  #    `_run` fixes came from Windows, and the rest of CI is ubuntu+macos only — so the
+  #    ORIGIN ENVIRONMENT OF THE DEFECT WAS NOT COVERED BY THE GREEN. Install+import alone
+  #    also never exercised the subprocess contract those fixes changed, so the contract
+  #    tests run here too. The gate suite is bash and stays on the unix matrix above; this
+  #    job is the Python layer, which is where both reported P0s actually lived.
   mcp:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,6 +54,9 @@ jobs:
       - name: Install yeoul-mcp from source
         run: pip install ./mcp
       - name: Import the server + confirm the tool surface
+        # `shell: bash` is required now that this job also runs on Windows: the default shell
+        # there is PowerShell, which has no heredoc — `python - <<'PY'` is a parse error.
+        shell: bash
         run: |
           python - <<'PY'
           from yeoul_mcp import server
@@ -53,3 +67,5 @@ jobs:
           assert len(tools) == 12, tools
           print("yeoul-mcp OK — 12 tools")
           PY
+      - name: _run subprocess contract (stdin never inherited, UTF-8 pinned)
+        run: python mcp/tests/test_run_contract.py
