@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -34,11 +35,20 @@ def _run(script: str, *args: str, cwd: str | None = None, stdin: str | None = No
     path = BIN / script
     if not path.exists():
         return {"exit_code": 127, "stdout": "", "stderr": f"script not found: {path}"}
-    cmd = ["bash", str(path), *args] if not script.endswith(".py") else ["python3", str(path), *args]
+    interp = [os.environ.get("YEOUL_BASH", "bash")] if not script.endswith(".py") else [sys.executable]
+    cmd = [*interp, str(path), *args]
+    # 🔴 stdin: never inherit the parent's. On an MCP STDIO server the parent's stdin IS the
+    #    protocol pipe, and a child that inherits it steals protocol bytes — the tool then
+    #    hangs until timeout (field report, Windows/Codex, 2026-08-24).
+    # 🔴 encoding: pin UTF-8. The gate strips a `←` hint before judging an answer; under a
+    #    non-UTF-8 default (CP949) the strip fails and a trivial "yes" arrives long enough to
+    #    clear the substance checks. That is a gate-integrity bug, not a display bug.
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     try:
         p = subprocess.run(
-            cmd, cwd=cwd or os.getcwd(), input=stdin,
-            capture_output=True, text=True, timeout=120,
+            cmd, cwd=cwd or os.getcwd(),
+            input=stdin if stdin is not None else "",
+            capture_output=True, text=True, encoding="utf-8", env=env, timeout=120,
         )
         return {"exit_code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
     except subprocess.TimeoutExpired:

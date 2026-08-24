@@ -113,26 +113,48 @@ emit_seal_check() { # non-KILL close with a seal linked — cross-check it regar
 
 # Trivial-evasion check. Both paths share ONE bar — kept apart, they drift (proved 2026-08-05:
 # the same answer sealed internally and was refused by this file).
+# ★2026-08-24 redesign: the substance check used to be a single `[ ${#vans} -ge 6 ]` (>= 6 chars).
+#   Measured: 28 of 28 evasive answers sealed straight through (`aaaaaa`, `yes yes`, `yes ok`, ...).
+#   The Windows/CP949 field report was ONE CASE of that class, not the class.
+#   The judgement now lives in substance_check.py — a file kept **byte-identical** with the internal
+#   copy, emitting machine codes only. Prose is attached here, so the two copies stay in step by
+#   construction rather than by discipline.
+SUBSTANCE="$(dirname "${BASH_SOURCE[0]}")/substance_check.py"
+TAB="$(printf '\t')"   # NOTE: ${v%%\t*} is a literal `t` in shell patterns — this must be a real tab
+
 check_answers() { # check_answers <section start marker>
+  # ★ The positive control runs at the HEAD OF THE GATE'S EXECUTION PATH, not in a test file.
+  #   If the checker cannot separate planted violations from planted genuine answers, we do NOT
+  #   interpret the real answers — we die. An instrument is not trusted because it is green;
+  #   it is trusted because it just proved it can still say no.
+  if ! st="$(python3 "$SUBSTANCE" --selftest 2>&1)"; then
+    echo "⛔ seal refused: the substance checker failed its own positive control — the instrument is broken, so the real verdict is not interpreted."
+    printf '%s\n' "$st" | sed 's/^/    /'
+    exit 6
+  fi
+  echo "   🧪 substance-checker positive control: ${st##*: }"
   while IFS= read -r vline; do
     case "$vline" in "- **"*"**:"*) ;; *) continue ;; esac
     vlabel="$(printf '%s' "$vline" | sed -E 's/^- \*\*([^*]+)\*\*.*/\1/')"
-    # answer extraction via python (Unicode-safe — sed's multibyte ← match is locale-fragile)
-    vans="$(printf '%s' "$vline" | python3 -c 'import sys,re; s=sys.stdin.read(); s=re.sub(r"^- \*\*[^*]+\*\*:\s*","",s); s=re.sub(r"\s*←.*$","",s); sys.stdout.write(s.strip())')"
-    vlow="$(printf '%s' "$vans" | tr '[:upper:]' '[:lower:]')"
-    case "$vlow" in ""|y|yes|ok|okay|na|n/a|done|.|-|x|pass|true|good|yep|sure|n)
-      echo "⛔ seal refused: '$vlabel' answer too trivial: '$vans'"; exit 5 ;;
+    # 🔴 Read the verdict from the emitted CODE, not the exit status. If the checker cannot run at
+    #    all the output is empty — which is not OK — so this **fails closed**. A false default would
+    #    turn "never measured" into "measured and fine".
+    vout="$(printf '%s' "$vline" | python3 "$SUBSTANCE" --label "$vlabel" 2>/dev/null || true)"
+    vcode="${vout%%"$TAB"*}"; vans="${vout#*"$TAB"}"
+    [ "$vcode" = "OK" ] && continue
+    case "$vcode" in
+      DECODE_FAILED) echo "⛔ seal refused: '$vlabel' answer was not readable as UTF-8 (encoding damage) — could not judge" ;;
+      TRIVIAL_VOCAB) echo "⛔ seal refused: '$vlabel' answer is trivial vocabulary only: '$vans'" ;;
+      DEFERRAL)      echo "⛔ seal refused: '$vlabel' answer defers ('don't know' / 'TODO') — honest, but it cannot ground a seal: '$vans'" ;;
+      REPEATED_UNIT) echo "⛔ seal refused: '$vlabel' answer is one unit repeated: '$vans'" ;;
+      LOW_DIVERSITY) echo "⛔ seal refused: '$vlabel' answer has almost no character variety: '$vans'" ;;
+      THIN_CONTENT)  echo "⛔ seal refused: '$vlabel' answer carries no substance (too few content tokens): '$vans'" ;;
+      NEED_CATALOG)  echo "⛔ seal refused: catalog cross-check needs a real catalog id or 'none': '$vans'" ;;
+      NEED_ANCHOR)   echo "⛔ seal refused: anchor answer needs a number or a seal/reproduction reference: '$vans'" ;;
+      "")            echo "⛔ seal refused: could not run the substance checker for '$vlabel' — an unmeasured field is not a passing field" ;;
+      *)             echo "⛔ seal refused: '$vlabel' failed the substance check ($vcode): '$vans'" ;;
     esac
-    case "$vlabel" in
-      *[Cc]atalog*)  # a catalog id, or the literal 'none'
-        case "$vlow" in none) : ;; *) printf '%s' "$vans" | grep -qE '[A-Za-z0-9_]{3,}' \
-          || { echo "⛔ seal refused: catalog cross-check needs a catalog id or 'none': '$vans'"; exit 5; } ;; esac ;;
-      *[Aa]nchor*)   # a number, or a seal/reproduction reference
-        printf '%s' "$vlow" | grep -qE '[0-9]|seal|anchor|reproduc|converg|hash' \
-          || { echo "⛔ seal refused: anchor answer needs a number or a seal/reproduction reference: '$vans'"; exit 5; } ;;
-      *)             # otherwise require a little substance
-        [ "${#vans}" -ge 6 ] || { echo "⛔ seal refused: '$vlabel' answer too short: '$vans'"; exit 5; } ;;
-    esac
+    exit 5
   done < <(sed -n "/$1/,\$p" "$SUMMARY")
 }
 
