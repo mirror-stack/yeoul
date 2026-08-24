@@ -29,9 +29,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from yeoul_mcp import server  # noqa: E402
 
 FAIL = []
+RAN = []
 
 
 def check(desc, cond, detail=""):
+    RAN.append(desc)
     print(("  ok   " if cond else "  FAIL ") + desc + (("  -- " + detail) if detail and not cond else ""))
     if not cond:
         FAIL.append(desc)
@@ -122,7 +124,18 @@ def main():
         test_stdin_not_inherited(tmp)
         test_utf8_pinned_under_hostile_locale(tmp)
         test_missing_script_is_not_a_pass(tmp)
-    print("\n%s (%d failed)" % ("all _run contract tests passed" if not FAIL else "CONTRACT TESTS FAILED", len(FAIL)))
+    # 🔴 Print WHAT WAS COUNTED, not just the failure count. A run that collected zero checks
+    #    prints "0 failed" too, so that summary cannot tell "everything passed" apart from
+    #    "nothing ran" — and the summary line is what a human quotes later, not the ok lines.
+    #    (substance_check.py already reports `n/n (...)`; these two summaries now match.)
+    if not RAN:
+        # Decide BEFORE printing: a summary that says "passed" above a failure line is the
+        # same trap one line lower down.
+        print("\nCONTRACT TESTS FAILED: no checks ran at all — an empty run is not a pass")
+        return 1
+    print("\n%s: %d/%d checks passed"
+          % ("all _run contract tests passed" if not FAIL else "CONTRACT TESTS FAILED",
+             len(RAN) - len(FAIL), len(RAN)))
     return 1 if FAIL else 0
 
 

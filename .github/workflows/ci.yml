@@ -65,7 +65,9 @@ jobs:
               'arc_close','build_handoff','ralph_gate_check','arc_prereg','verify_gate',
               'status','arc_list')]
           assert len(tools) == 12, tools
-          print("yeoul-mcp OK — 12 tools")
+          # ASCII only: the em-dash renders as "?" on the Windows console, which reads like
+          # a mojibake defect in the log when nothing is actually wrong.
+          print("yeoul-mcp OK - 12 tools")
           PY
       - name: _run subprocess contract (stdin never inherited, UTF-8 pinned)
         run: python mcp/tests/test_run_contract.py
