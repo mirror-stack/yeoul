@@ -54,6 +54,9 @@ jobs:
       - name: Install yeoul-mcp from source
         run: pip install ./mcp
       - name: Import the server + confirm the tool surface
+        # `shell: bash` is required now that this job also runs on Windows: the default shell
+        # there is PowerShell, which has no heredoc — `python - <<'PY'` is a parse error.
+        shell: bash
         run: |
           python - <<'PY'
           from yeoul_mcp import server
