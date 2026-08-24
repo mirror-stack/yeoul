@@ -10,42 +10,50 @@ ARC_DIR="${1:-}"; CMD="${2:-status}"
 [ -d "$ARC_DIR" ] || { echo "arc dir not found: $ARC_DIR" >&2; exit 1; }
 STATE="$ARC_DIR/loop_state.tsv"
 
-MAXR=""; BUDGET=""; TOKENS=0; PROGRESS="yes"
+# 🔴 TOKENS has no safe default. `--tokens` omitted used to mean 0, so a caller that never
+#    passed it accumulated 0 forever: STOP:budget could not fire, while `status` printed
+#    "tokens_used=0/200000" — a line shaped exactly like a measurement. Omission and a
+#    measured zero must not look the same, so track whether it was ever supplied.
+MAXR=""; BUDGET=""; TOKENS=0; TOKENS_GIVEN=0; PROGRESS="yes"
 for a in "${@:3}"; do case "$a" in
   --max-rounds=*)   MAXR="${a#*=}" ;;
   --token-budget=*) BUDGET="${a#*=}" ;;
-  --tokens=*)       TOKENS="${a#*=}" ;;
+  --tokens=*)       TOKENS="${a#*=}"; TOKENS_GIVEN=1 ;;
   --progress=*)     PROGRESS="${a#*=}" ;;
 esac; done
 
-ROUND=0; MR=3; TB=200000; TU=0; NP=0
+ROUND=0; MR=3; TB=200000; TU=0; NP=0; UM=0
 load(){
   if [ -f "$STATE" ]; then
     while IFS=$'\t' read -r k v; do case "$k" in
       round) ROUND=$v ;; max_rounds) MR=$v ;; token_budget) TB=$v ;;
-      tokens_used) TU=$v ;; no_progress) NP=$v ;;
+      tokens_used) TU=$v ;; no_progress) NP=$v ;; unmeasured) UM=$v ;;
     esac; done < "$STATE"
   fi
 }
-save(){ printf 'round\t%s\nmax_rounds\t%s\ntoken_budget\t%s\ntokens_used\t%s\nno_progress\t%s\n' \
-        "$ROUND" "$MR" "$TB" "$TU" "$NP" > "$STATE"; }
+save(){ printf 'round\t%s\nmax_rounds\t%s\ntoken_budget\t%s\ntokens_used\t%s\nno_progress\t%s\nunmeasured\t%s\n' \
+        "$ROUND" "$MR" "$TB" "$TU" "$NP" "$UM" > "$STATE"; }
+# How much of tokens_used is actually backed by a reported count. Printed with a denominator so a
+# quiet "tokens=0/200000" can never be mistaken for a measurement of zero.
+warn_unmeasured(){ [ "$UM" -gt 0 ] && printf ' unmeasured=%s/%s-ticks' "$UM" "$ROUND"; return 0; }
 
 case "$CMD" in
   init)
-    ROUND=0; MR="${MAXR:-3}"; TB="${BUDGET:-200000}"; TU=0; NP=0; save
+    ROUND=0; MR="${MAXR:-3}"; TB="${BUDGET:-200000}"; TU=0; NP=0; UM=0; save
     echo "loop init: max_rounds=$MR token_budget=$TB" ;;
   tick)
     load
     ROUND=$((ROUND+1)); TU=$((TU+TOKENS))
+    if [ "$TOKENS_GIVEN" = "0" ]; then UM=$((UM+1)); fi
     if [ "$PROGRESS" = "no" ]; then NP=$((NP+1)); else NP=0; fi
     save
     if   [ "$ROUND" -gt "$MR" ];  then echo "STOP:max-rounds (round=$ROUND > max=$MR)"
     elif [ "$TU" -gt "$TB" ];     then echo "STOP:budget (used=$TU > budget=$TB)"
     elif [ "$NP" -ge 2 ];         then echo "STOP:no-progress (streak=$NP)"
-    else                                echo "CONTINUE (round=$ROUND/$MR tokens=$TU/$TB noprog=$NP)"
+    else                                echo "CONTINUE (round=$ROUND/$MR tokens=$TU/$TB noprog=$NP$(warn_unmeasured))"
     fi ;;
   status)
-    load; echo "round=$ROUND/$MR tokens_used=$TU/$TB no_progress=$NP" ;;
+    load; echo "round=$ROUND/$MR tokens_used=$TU/$TB no_progress=$NP$(warn_unmeasured)" ;;
   *)
     echo "usage: loop-guard <arc_dir> init|tick|status [--max-rounds=N --token-budget=T --tokens=N --progress=yes|no]"; exit 1 ;;
 esac

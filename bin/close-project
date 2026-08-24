@@ -41,7 +41,13 @@ mkdir -p "$ARCHIVE"
 mv "$SRC" "$DEST"
 
 # optional: seal into append-only ledger (best-effort; content-hash = _CLOSED.md)
-SEAL_MSG="no ledger — file only (install mirror-stack for sealing)"
+# 🔴 say what was actually tested. The condition below is "is the `am` CLI on PATH",
+#    which is not the same as "mirror-stack is not installed" — an MCP-only install has
+#    mirror-stack present with no `am` on PATH, and the old text sent those users to
+#    reinstall something they already had.
+# NB: single-quoted on purpose — backticks inside double quotes are command substitution,
+#     which ran `am` and leaked its exit status into the close (caught by tests/test_gates.sh).
+SEAL_MSG='not sealed — file only (`am` CLI not on PATH; mirror-stack may still be installed)'
 if command -v am >/dev/null 2>&1; then
   if am record --agent yeoul --action close-project --target "$NAME" \
        --payload "{\"open_arcs\":${OPEN},\"reason\":\"closed\"}" \
