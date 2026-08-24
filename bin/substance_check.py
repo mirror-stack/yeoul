@@ -1,74 +1,131 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""substance_check.py — 아크 종결 게이트의 **실질검사** 한 자리.
+"""substance_check.py — the one place an arc close decides whether an answer has substance.
 
-이 파일은 내부(apps/nacc/scripts/)와 OSS(bin/) 두 사본에 **바이트 동일**하게 놓인다.
-그래서 출력은 산문이 아니라 **기계 코드**다 — 문구는 각 셸 사본이 자기 언어로 붙인다.
-(드리프트를 규율이 아니라 구조로 막는다: 08-24 "수리는 양쪽, 시험은 OSS 에만" 재발 방지.)
+This file is kept BYTE-IDENTICAL between the internal copy (apps/nacc/scripts/) and the OSS
+copy (bin/). It emits machine CODES only; each shell renders its own prose. Drift between the
+two copies is prevented by construction rather than by discipline — a previous fix went into
+both copies while its regression test went into only one.
 
-왜 길이 검사를 버렸나
----------------------
-옛 검사는 `[ ${#vans} -ge 6 ]`(6자 이상) 하나였다. 2026-08-24 실측: 회피성 답 **28종 28건
-전부**가 그대로 박제됐다(`aaaaaa`·`yes yes`·`yes ok`·`ㅇㅇㅇㅇㅇㅇ`…). 길이는 실질의 대리변수라
-대리변수를 만족시키는 비답이 무제한이다. ⚠️ 그렇다고 길이 바를 올리면 **진짜 짧은 답이 거절되는
-반대 사고**가 난다(실측: 진짜 답 최단 42자였지만, `d=0.05 < 0.2 바 미달` 같은 18자 답은 정당하다).
-⇒ 길이가 아니라 **내용**을 본다.
+Why the length test was dropped
+-------------------------------
+The check used to be a single `[ ${#vans} -ge 6 ]` — six characters or more and the answer
+sealed. Measured 2026-08-24 against the real binary: **28 of 28 evasive answers sealed, 0
+caught** (`aaaaaa`, `yes yes`, `yes ok`, ...). Length is a proxy, and the set of non-answers
+that satisfy a proxy is unbounded.
 
-무엇을 거절하는가 (거절 코드)
------------------------------
-  DECODE_FAILED  UTF-8로 못 읽었다 — "판정 못 함"이지 "거부"가 아니다(둘을 뭉치면 위장된다)
-  TRIVIAL_VOCAB  자명어휘만 남는다: `yes` `ok` `없음` `n/a` `.` `-` …
-  DEFERRAL       정직한 비답: `모르겠다` `TODO` `나중에` `미확인` — 거짓은 아니나 봉인 근거가 못 된다
-  REPEATED_UNIT  한 단위의 반복: `yesyesyes` `해당없음해당없음` `ㅁㄴㅇㄹㅁㄴㅇㄹ`
-  LOW_DIVERSITY  글자 다양성 바닥: `aaaaaa` `......` `ㅇㅇㅇㅇㅇㅇ`
-  THIN_CONTENT   내용토큰 2개 미만이고 글자종류도 10 미만: `qwerty` `123456`
-  NEED_CATALOG   도감칸인데 catalog id 도 '해당없음'도 아니다
-  NEED_ANCHOR    앵커칸인데 수치도 seal/재현 참조도 없다
+Raising the bar fails in the other direction: a genuine answer can be short
+(`d=0.05 < 0.2, under the sealed bar`). So this judges CONTENT, and the repair was measured
+both ways — evasions caught AND genuine answers not refused.
 
-🔴 이 검사는 **부류를 좁힐 뿐 닫지 못한다.** 내가 아는 회피 수법만 잡는다. 그래서 이 파일의
-핵심은 위 규칙이 아니라 아래 `--selftest` 다 — 심어 둔 표본을 못 가르면 **게이트가 실제 판정을
-해석하지 말고 죽는다**([[positive_control_on_instruments_too]]: 계기에도 양성대조를, 주석이 아니라
-실행경로에).
+Korean here is functional data, not decoration
+----------------------------------------------
+Yeoul is used in Korean as well as English, so the trivial/deferral vocabularies and the field
+labels include Korean. This repo's publish guard treats raw Hangul as a personalization leak
+(`setup/pre-publish-check.sh`), so every Korean literal below is written as an escape carrying
+a romanization and an English gloss. The guard uses that same technique on itself. The escapes
+were generated, not typed, and round-tripped back to the source words before being committed.
+
+Rejection codes (the shell attaches the wording)
+------------------------------------------------
+  DECODE_FAILED  not readable as UTF-8 — "could not judge", which is NOT "refused on the
+                 merits"; merging the two disguises one as the other
+  TRIVIAL_VOCAB  nothing but trivial vocabulary: `yes` `ok` `n/a` `.` `-`
+  DEFERRAL       an honest non-answer: "don't know", "TODO", "not measured" — not a lie, but
+                 it cannot ground a seal
+  REPEATED_UNIT  one unit repeated: `yesyesyes`, `abcabcabc`
+  LOW_DIVERSITY  almost no character variety: `aaaaaab`
+  THIN_CONTENT   too few content tokens to carry a claim: `qwerty`, `123456`
+  NEED_CATALOG   catalog field without a real catalog id (or the literal "none")
+  NEED_ANCHOR    anchor field without a number or a seal/reproduction reference
+
+🔴 These rules NARROW the class; they do not close it. They catch evasions we thought of.
+That is exactly why the load-bearing part of this file is `--selftest`: the gate runs planted
+specimens through this judge at the HEAD OF ITS EXECUTION PATH, and if the judge cannot
+separate them it refuses to interpret the real answers at all.
 """
 import re
 import sys
 import unicodedata
 
-# ── 자명어휘: 그것만으로는 아무것도 주장하지 않는 토큰 ────────────────────────────
+# ── Korean vocabulary, escaped so this file carries no raw Hangul ────────────────
+_KO = {
+    "YES1": "\uc608",                         # ye — "yes"
+    "YES2": "\ub124",                         # ne — "yes"
+    "NO_": "\uc544\ub2c8\uc624",              # anio — "no"
+    "UHUH": "\uc751",                         # eung — "uh-huh"
+    "DID": "\ud568",                          # ham — "did it"
+    "DONE_": "\ub428",                        # doem — "done"
+    "NONE_CH": "\ubb34",                      # mu — "none"
+    "CONFIRM": "\ud655\uc778",                # hwagin — "confirmed"
+    "COMPLETE": "\uc644\ub8cc",               # wallyo — "complete"
+    "PASSED": "\ud1b5\uacfc",                 # tonggwa — "passed"
+    "CORRECT": "\ub9de\uc74c",                # majeum — "correct"
+    "ABSENT": "\uc5c6\uc74c",                 # eopseum — "none / absent"
+    "NA_KO": "\ud574\ub2f9\uc5c6\uc74c",      # haedang-eopseum — "not applicable"
+    "SO": "\uadf8\ub807\ub2e4",               # geureota — "that is so"
+    "NOT_SO": "\uc544\ub2c8\ub2e4",           # anida — "that is not so"
+    "APPLIED": "\uc801\uc6a9",                # jeogyong — "applied"
+    "NORMAL": "\uc815\uc0c1",                 # jeongsang — "normal"
+    "DUNNO1": "\ubaa8\ub984",                 # moreum — "don't know"
+    "DUNNO2": "\ubaa8\ub974\uaca0",           # moreugess — "don't know (stem)"
+    "UNCONF": "\ubbf8\ud655\uc778",           # mihwagin — "unconfirmed"
+    "UNMEAS": "\ubbf8\uce21\uc815",           # micheukjeong — "unmeasured"
+    "LATER1": "\ub098\uc911\uc5d0",           # najunge — "later"
+    "LATER2": "\ucd94\ud6c4",                 # chuhu — "later"
+    "LATER3": "\ucc28\ud6c4",                 # chahu — "later"
+    "HOLD": "\ubcf4\ub958",                   # boryu — "on hold"
+    "NOTMEAS1": "\uc548\u0020\uc7c0",         # an jaess — "did not measure"
+    "NOTMEAS2": "\uc548\uc7c0",               # anjaess — "did not measure"
+    "NOTMEAS3": "\ubabb\u0020\uc7c0",         # mot jaess — "could not measure"
+    "NOTMEAS4": "\ubabb\uc7c0",               # motjaess — "could not measure"
+    "NOTDONE1": "\uc548\u0020\ud568",         # an ham — "did not do"
+    "NOTDONE2": "\uc548\ud568",               # anham — "did not do"
+    "CATALOG": "\ub3c4\uac10",                # dogam — "catalog"
+    "ANCHOR": "\uc575\ucee4",                 # aengkeo — "anchor"
+    "REPRO": "\uc7ac\ud604",                  # jaehyeon — "reproduce"
+    "CONVERGE": "\uc218\ub834",               # suryeom — "converge"
+}
+
+# ── Trivial vocabulary: tokens that assert nothing on their own ──────────────────
 TRIVIAL = {
     "", "y", "n", "yes", "no", "ok", "okay", "na", "n/a", "nil", "none", "null",
     "pass", "fail", "true", "false", "done", "good", "yep", "yup", "sure", "fine",
     "x", "o", ".", "-", "--", "?", "!", "test", "tbd",
-    "예", "네", "아니오", "응", "함", "됨", "무", "확인", "완료", "통과", "맞음", "없음",
-    "해당없음", "그렇다", "아니다", "적용", "정상",
-}
+} | {_KO[k] for k in (
+    "YES1", "YES2", "NO_", "UHUH", "DID", "DONE_", "NONE_CH", "CONFIRM", "COMPLETE",
+    "PASSED", "CORRECT", "ABSENT", "NA_KO", "SO", "NOT_SO", "APPLIED", "NORMAL",
+)}
 
-# ── 유예어휘: 정직한 비답. 거짓은 아니지만 봉인의 근거가 될 수 없다 ─────────────
+# ── Deferral vocabulary: honest non-answers. True, but they cannot ground a seal ──
 DEFERRAL = [
-    "모름", "모르겠", "모르겠다", "미확인", "미측정", "나중에", "추후", "차후", "보류",
     "todo", "tbd", "later", "unknown", "unclear", "not sure", "dunno", "pending",
-    "안 쟀", "안쟀", "못 쟀", "못쟀", "안 함", "안함",
-]
+    "not run", "not measured",
+] + [_KO[k] for k in (
+    "DUNNO1", "DUNNO2", "UNCONF", "UNMEAS", "LATER1", "LATER2", "LATER3", "HOLD",
+    "NOTMEAS1", "NOTMEAS2", "NOTMEAS3", "NOTMEAS4", "NOTDONE1", "NOTDONE2",
+)]
 
-MIN_DEFERRAL_CONTENT = 3    # 유예어휘가 답을 지배하는지 가르는 선(절 vs 답 전체)
-MIN_CONTENT_TOKENS = 2      # 실질적 답은 최소 두 가지를 말한다
-MIN_DISTINCT_CHARS = 10     # 단일토큰이어도 글자종류가 넉넉하면 통과(한국어 무공백 대응)
-# 🔴 글자종류를 **비율**로 재면 안 된다 — 알파벳이 유한하므로 답이 길수록 비율이 떨어진다.
-#    ⇒ 긴 답일수록 거절되는 **거꾸로 된 자**였다. 실측으로 잡았다: 영어 한 문장
-#    "not run — the face arm is absent ..."(85자·distinct 26 → 0.31)이 오거절됐다.
-#    한국어 코퍼스는 음절 종류가 많아 이 결함을 못 드러냈다(내 표본이 한국어에 치우쳤다).
-#    ⇒ 길이 무관한 **절대 하한**으로 바꾼다. 도배(`aaaaaab`)는 글자종류 자체가 바닥이다.
-MIN_DISTINCT_FLOOR = 5      # 글자종류 절대 하한(길이 무관)
+MIN_DEFERRAL_CONTENT = 3    # below this, a deferral IS the answer rather than a clause in it
+MIN_CONTENT_TOKENS = 2      # a real answer says at least two things
+MIN_DISTINCT_CHARS = 10     # a single long token can still carry substance (unspaced Korean)
+# 🔴 Do NOT measure character variety as a RATIO. Alphabets are finite, so a longer answer
+#    scores lower — that ruler rejects answers for being long, which is backwards. Measured:
+#    an 85-char English sentence has 26 distinct chars = 0.31 and was refused. A Korean-heavy
+#    corpus cannot expose this (thousands of syllables keep the ratio high), so the sealed
+#    measurement went green and an OSS regression test caught it instead.
+MIN_DISTINCT_FLOOR = 5      # length-independent absolute floor
 
-_PUNCT = re.compile(r"[\s,./·;:()\[\]{}<>\"'`~!?*_=+|\\@#$%^&—–…·]+")
+_PUNCT = re.compile(r"[\s,./·;:()\[\]{}<>\"'`~!?*_=+|\\@#$%^&—–…]+")
 
 
 def extract(raw_bytes):
-    """게이트 한 줄(raw bytes) → (code, answer). 힌트(←) 이후는 버린다.
+    """One gate line (raw bytes) -> (code, answer). Everything after the `←` hint is dropped.
 
-    ★ 추출도 이 파일 안에 둔다 — 2026-08-24 결함은 **추출부**에 있었다(CP949 에서 `←`가
-      안 지워져 힌트가 답의 몸통이 됐다). 검사만 selftest 하고 추출을 밖에 두면 그 구멍이
-      다시 시험 밖으로 나간다.
+    ★ Extraction lives in this file on purpose. The 2026-08-24 defect was IN THE EXTRACTOR:
+      under a CP949 mis-decode the `←` was not stripped, so the hint became the body of the
+      answer and a trivial "yes" arrived long enough to clear the checks. Testing the judge
+      but leaving the extractor outside would put that hole back outside the tests.
     """
     body = raw_bytes.split("←".encode("utf-8"))[0]
     s = body.decode("utf-8", "replace")
@@ -80,7 +137,7 @@ def extract(raw_bytes):
 
 def _normalize(ans):
     s = unicodedata.normalize("NFKC", ans)
-    s = re.sub(r"\*\*|__|`", "", s)          # 마크다운 강조는 내용이 아니다
+    s = re.sub(r"\*\*|__|`", "", s)          # markdown emphasis is not content
     return s.strip()
 
 
@@ -89,7 +146,7 @@ def _tokens(norm):
 
 
 def _repeated_unit(s):
-    """문자열 전체가 한 단위의 반복인가 (`asdfasdf`, `해당없음해당없음`)."""
+    """Is the whole string one unit repeated (`abcabc`, `yesyesyes`)?"""
     t = re.sub(r"\s+", "", s)
     n = len(t)
     if n < 4:
@@ -101,36 +158,41 @@ def _repeated_unit(s):
 
 
 def judge(label, ans):
-    """(code, detail). code == 'OK' 면 통과. 라벨별 전용칸도 여기서 함께 본다."""
+    """(code, detail). 'OK' passes. Field-specific branches are handled here too."""
     norm = _normalize(ans)
     low = norm.lower()
 
-    # 라벨 전용칸 — 도감/앵커는 실질의 모양이 다르다(id / 수치·참조)
-    if "도감" in label or re.search(r"catalog", label, re.I):
-        if low in ("해당없음", "none"):
+    # Catalog field: an id, or an explicit "not applicable"
+    if _KO["CATALOG"] in label or re.search(r"catalog", label, re.I):
+        if low in (_KO["NA_KO"], "none"):
             return "OK", "exempt"
-        # id 모양만 보면 `zzz` 가 통과한다 — 길이바와 **같은 부류**의 대리변수였다.
-        # 내용토큰 수는 못 쓴다(진짜 id `vacuous_pass` 는 한 토큰이다) ⇒ 반복·다양성만 건다.
+        # An id-SHAPE test alone lets `zzz` through — the same kind of proxy as the length bar.
+        # Content-token count cannot be used (a real id like `vacuous_pass` is one token), so
+        # repetition and character variety are what apply.
         if not re.search(r"[A-Za-z0-9_]{3,}", norm):
             return "NEED_CATALOG", norm
         _bare = re.sub(r"\s+", "", norm)
         if _repeated_unit(norm) or (_bare and len(set(_bare)) < MIN_DISTINCT_FLOOR):
             return "NEED_CATALOG", norm
         return "OK", "catalog-id"
-    if "앵커" in label or re.search(r"anchor", label, re.I):
-        if not re.search(r"[0-9]|seal|anchor|reproduc|converg|재현|수렴|앵커|hash", low):
+
+    # Anchor field: a number, or a seal/reproduction reference. Falls through to the general
+    # test afterwards, so a bare `123456` cannot satisfy it.
+    if _KO["ANCHOR"] in label or re.search(r"anchor", label, re.I):
+        pat = "[0-9]|seal|anchor|reproduc|converg|hash|%s|%s|%s" % (
+            _KO["REPRO"], _KO["CONVERGE"], _KO["ANCHOR"])
+        if not re.search(pat, low):
             return "NEED_ANCHOR", norm
-        # 앵커칸도 일반 실질검사를 **함께** 받는다 — 숫자 하나로 때우는 길을 막는다
-        # (`123456` 이 앵커칸을 통과하던 자리)
 
     toks = _tokens(norm)
     content = [t for t in toks if t not in TRIVIAL and not t.isspace()]
 
     if not content:
         return "TRIVIAL_VOCAB", norm
-    # 🔴 유예는 **답 전체가 비답일 때만** 건다. 이유·귀결을 갖춘 긴 답 안의 유예 *절* 은
-    #    실질을 없애지 않는다 — 실측으로 잡았다: 박제이력 실물 32건 중 1건이 이 규칙에
-    #    오거절됐다("미실행 — …측정 안 함. 얼굴 팔 부재로 앵커 자체 미구성").
+    # 🔴 A deferral only counts when it IS the whole answer. A deferral CLAUSE inside a
+    #    reasoned answer does not remove its substance — measured: 1 of 32 real answers
+    #    already sealed by this gate was wrongly refused by the naive form of this rule
+    #    ("not run — the face arm is absent, so no anchor could be formed").
     if len(set(content)) < MIN_DEFERRAL_CONTENT and any(d in low for d in DEFERRAL):
         return "DEFERRAL", norm
     if _repeated_unit(norm):
@@ -146,81 +208,97 @@ def judge(label, ans):
     return "OK", norm
 
 
-# ── 양성대조 표본: 게이트 실행경로 맨 앞에서 매번 돌린다 ─────────────────────────
-# 🔴 반드시 **양방향**이다. 위반만 심으면 "전부 거절"하는 고장난 검사가 만점을 받는다
-#    (⊖ 음성만으론 못 가른다 — [[positive_control_on_instruments_too]]).
+# ── Planted specimens. The gate runs these at the head of its execution path ─────
+# 🔴 BIDIRECTIONAL ON PURPOSE. Plant only violations and a checker that rejects everything
+#    scores full marks. Measured: sabotaging the judge to always return OK scores a PARTIAL,
+#    not a zero, precisely because the genuine specimens still have to pass.
+# Korean specimens are built FROM the vocabulary table above, so this file needs no raw Hangul
+# and the Korean paths still get exercised on both copies.
+_L_IND = "Independent angles converged"
+_L_IMP = "Implementation defect ruled out"
+_L_KILL = "Kill wording match"
+_L_CAT_EN = "Catalog cross-check"
+_L_ANC_EN = "Anchor (positive control) reproduced"
+
 _PLANT_VIOLATIONS = [
-    ("독립각도 수렴", "aaaaaa", "REPEATED_UNIT"),
-    ("독립각도 수렴", "yes yes", "TRIVIAL_VOCAB"),
-    ("독립각도 수렴", "yes ok", "TRIVIAL_VOCAB"),
-    ("구현결함 배제", "ㅇㅇㅇㅇㅇㅇ", "REPEATED_UNIT"),
-    ("구현결함 배제", "aaaaaab", "LOW_DIVERSITY"),
-    ("구현결함 배제", "해당없음해당없음", "REPEATED_UNIT"),
-    ("구현결함 배제", "qwerty", "THIN_CONTENT"),
-    ("kill 문언 일치", "잘 모르겠다", "DEFERRAL"),
-    ("kill 문언 일치", "......", "TRIVIAL_VOCAB"),
-    ("도감 대조", "zzz", "NEED_CATALOG"),
-    ("도감 대조", "aaaa", "NEED_CATALOG"),
-    ("앵커(양성대조) 재현", "그냥 잘 됐다", "NEED_ANCHOR"),
+    (_L_IND, "aaaaaa", "REPEATED_UNIT"),
+    (_L_IND, "yes yes", "TRIVIAL_VOCAB"),
+    (_L_IND, "yes ok", "TRIVIAL_VOCAB"),
+    (_L_IMP, "aaaaaab", "LOW_DIVERSITY"),
+    (_L_IMP, "qwerty", "THIN_CONTENT"),
+    (_L_KILL, "TODO later", "DEFERRAL"),
+    (_L_KILL, "......", "TRIVIAL_VOCAB"),
+    (_L_CAT_EN, "zzz", "NEED_CATALOG"),
+    (_L_CAT_EN, "aaaa", "NEED_CATALOG"),
+    (_L_ANC_EN, "it just went fine", "NEED_ANCHOR"),
+    # Korean paths: trivial vocabulary, one unit repeated, a bare deferral — and the two
+    # Korean FIELD LABELS, which must route to the catalog/anchor branches just as the
+    # English ones do (that routing is a plain substring test and would fail silently).
+    (_L_IMP, _KO["CONFIRM"] + " " + _KO["COMPLETE"], "TRIVIAL_VOCAB"),
+    (_L_IMP, _KO["NA_KO"] * 2, "REPEATED_UNIT"),
+    (_L_KILL, _KO["DUNNO2"], "DEFERRAL"),
+    (_KO["CATALOG"], "zzz", "NEED_CATALOG"),
+    (_KO["ANCHOR"], "it just went fine", "NEED_ANCHOR"),
 ]
 _PLANT_GENUINE = [
-    ("독립각도 수렴", "분석과 재현이 서로 다른 근거로 같은 결론(코드 인용 2건)"),
-    ("구현결함 배제", "코드 verbatim 대조, 기제 로직 결함 아님"),
-    ("kill 문언 일치", "d=0.05 < 0.2 바 미달로 봉인 문언 그대로 적중"),
-    ("도감 대조", "vacuous_pass"),
-    ("도감 대조", "해당없음"),
-    ("앵커(양성대조) 재현", "앵커 3회 재현(seal 84007e65)"),
-    # 유예 *절* 을 품은 진짜 답 — 이게 거절되면 규칙이 절과 답을 못 가른 것이다(실측 오거절 1/32)
-    ("앵커(양성대조) 재현", "미실행 — 얼굴 팔 부재로 앵커 자체 미구성. 측정 안 함이 판정무효 규율에 해당"),
-    # 🔴 영어 표본을 반드시 함께 심는다. 08-24: 글자종류를 비율로 재던 자가 **긴 영어 문장을**
-    #    오거절했는데, 표본이 한국어뿐이라 시험이 그걸 못 봤다(OSS 회귀시험이 잡아냈다).
-    ("Independent angles converged", "two independent angles agreed from different evidence"),
-    ("Implementation defect ruled out",
-     "not run — the face arm is absent so no anchor could be formed; recorded as verdict-void"),
-    ("Kill wording match", "matches the sealed kill-condition verbatim, no post-hoc widening"),
+    (_L_IND, "two independent angles agreed from different evidence"),
+    (_L_IMP, "code compared verbatim, the mechanism is not at fault"),
+    (_L_KILL, "d=0.05 < 0.2, hits the sealed wording with no post-hoc widening"),
+    (_L_CAT_EN, "vacuous_pass"),
+    (_L_CAT_EN, "none"),
+    (_L_ANC_EN, "anchor reproduced 3x (seal 84007e65)"),
+    # 🔴 A genuine answer carrying a deferral CLAUSE must survive. The naive rule refused this
+    #    shape, and it was a REAL answer this gate had already sealed.
+    (_L_ANC_EN, "not run - the face arm is absent so no anchor could be formed; verdict-void"),
+    # Korean genuine answers must still seal
+    (_L_CAT_EN, _KO["NA_KO"]),
+    (_L_ANC_EN, _KO["REPRO"] + " 3x (seal 84007e65)"),
+    (_L_IND, _KO["CONVERGE"] + " over 2 seeds, code cited"),
 ]
-# 추출부까지 덮는 표본 — 힌트(←) 가 붙은 줄, 그리고 CP949 로 손상된 줄
+# Raw-line specimens cover EXTRACTION too — a `←` hint, and a CP949-damaged line.
+_HINT = _KO["REPRO"] + " " + _KO["CONVERGE"]
+_RAW_OK = ("- **%s**: yes ← %s" % (_L_IND, _HINT)).encode("utf-8")
 _PLANT_RAW = [
-    ("- **독립각도 수렴**: yes ← 위 조건은 봉인 고정. 결과가 그 조건을 만족하는지만 판단".encode("utf-8"),
-     "독립각도 수렴", "TRIVIAL_VOCAB"),
-    ("- **독립각도 수렴**: yes ← 위 조건은 봉인 고정".encode("utf-8").decode("cp949", "replace").encode("utf-8"),
-     "독립각도 수렴", "DECODE_FAILED"),
+    (_RAW_OK, _L_IND, "TRIVIAL_VOCAB"),
+    (_RAW_OK.decode("cp949", "replace").encode("utf-8"), _L_IND, "DECODE_FAILED"),
 ]
 
 
 def selftest(verbose=False):
-    """심어 둔 표본으로 검사기 자신을 잰다. (passed, total, failures)"""
+    """Run the planted specimens through this judge. Returns (passed, total, failures)."""
     fails = []
     total = 0
     for label, ans, expect in _PLANT_VIOLATIONS:
         total += 1
         code, _ = judge(label, ans)
         if code != expect:
-            fails.append(f"위반표본 미적발/오분류: [{label}] {ans!r} → {code} (기대 {expect})")
+            fails.append("violation not caught/misclassified: [%s] %r -> %s (expected %s)"
+                         % (label, ans, code, expect))
     for label, ans in _PLANT_GENUINE:
         total += 1
         code, _ = judge(label, ans)
         if code != "OK":
-            fails.append(f"진짜표본 오거절: [{label}] {ans!r} → {code} (기대 OK)")
+            fails.append("genuine answer wrongly refused: [%s] %r -> %s (expected OK)"
+                         % (label, ans, code))
     for raw, label, expect in _PLANT_RAW:
         total += 1
         code, ans = extract(raw)
         if code == "OK":
             code, _ = judge(label, ans)
         if code != expect:
-            fails.append(f"원문표본 오분류: {raw[:40]!r} → {code} (기대 {expect})")
+            fails.append("raw line misclassified: %r -> %s (expected %s)" % (raw[:40], code, expect))
     if verbose:
         for f in fails:
-            print("  ✗ " + f)
+            print("  x " + f)
     return total - len(fails), total, fails
 
 
 def main(argv):
     if "--selftest" in argv:
         ok, total, fails = selftest(verbose=True)
-        # 🔴 분모를 붙여 발화한다. `ALL OK` 단독은 아무것도 안 잰 초록과 구별되지 않는다.
-        print(f"substance_check selftest: {ok}/{total}"
-              f" (위반 {len(_PLANT_VIOLATIONS)} · 진짜 {len(_PLANT_GENUINE)} · 원문 {len(_PLANT_RAW)})")
+        # 🔴 Print the DENOMINATOR. A checker that measured nothing also prints green.
+        print("substance_check selftest: %d/%d (violations %d - genuine %d - raw %d)"
+              % (ok, total, len(_PLANT_VIOLATIONS), len(_PLANT_GENUINE), len(_PLANT_RAW)))
         return 0 if not fails else 9
     label = ""
     if "--label" in argv:
