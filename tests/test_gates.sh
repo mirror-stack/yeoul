@@ -304,34 +304,34 @@ NEW="$WS/new"; mkdir -p "$NEW"
 # YL-01 · a `/` in the topic used to abort sed and leave a half-built project behind.
 ( cd "$NEW" && YEOUL_PROJECTS="$NEW/projects" "$BIN/yeoul-new" slashed --topic='fast/medium/slow' ) \
   >/dev/null 2>&1
-assert "topic containing / scaffolds" 0 $?
+assert "[YL-01] topic containing / scaffolds" 0 $?
 if grep -qF 'fast/medium/slow' "$NEW/projects/slashed/design/spec.md" 2>/dev/null; then
-  ok "topic substituted literally (not parsed as a sed expression)"; else bad "topic not rendered literally"; fi
+  ok "[YL-01] topic substituted literally (not parsed as a sed expression)"; else bad "[YL-01] topic not rendered literally"; fi
 # command substitution in a topic must stay text
 ( cd "$NEW" && YEOUL_PROJECTS="$NEW/projects" "$BIN/yeoul-new" inj --topic='$(id -u)' ) >/dev/null 2>&1
 if grep -qF '$(id -u)' "$NEW/projects/inj/design/spec.md" 2>/dev/null; then
-  ok "topic is not evaluated as shell"; else bad "topic was evaluated"; fi
+  ok "[YL-01] topic is not evaluated as shell"; else bad "[YL-01] topic was evaluated"; fi
 
 # YL-01 (atomicity) · a failure anywhere must leave no partial project to collide with a retry.
 STUB="$WS/stubbin"; rm -rf "$STUB"; cp -r "$BIN" "$STUB"
 printf '#!/usr/bin/env bash\nexit 7\n' > "$STUB/arc-open"; chmod +x "$STUB/arc-open"
 ROLL="$WS/roll"; mkdir -p "$ROLL"
 ( cd "$ROLL" && YEOUL_PROJECTS="$ROLL/projects" "$STUB/yeoul-new" doomed --topic='a/b' ) >/dev/null 2>&1
-assert "failed scaffold propagates the real exit code" 7 $?
+assert "[YL-01] failed scaffold propagates the real exit code" 7 $?
 if [ -z "$(ls -A "$ROLL/projects" 2>/dev/null)" ]; then
-  ok "failed scaffold left nothing behind (retry starts clean)"; else bad "partial scaffold survived"; fi
+  ok "[YL-01] failed scaffold left nothing behind (retry starts clean)"; else bad "[YL-01] partial scaffold survived"; fi
 rm -rf "$STUB"
 
 # YL-02 · the JOIN prompt is an instruction someone runs from an unknown cwd.
 JP="$(ls "$NEW"/projects/slashed/design/arcs/*/JOIN_PROMPTS.md 2>/dev/null | head -1)"
 ATTACH_LINE="$(grep -m1 'arc-attach' "$JP" 2>/dev/null | sed 's/^ *//')"
 case "$ATTACH_LINE" in
-  /*|'"/'*) ok "JOIN prompt emits an absolute attach path" ;;
-  *) bad "JOIN prompt still emits a relative path: $ATTACH_LINE" ;;
+  /*|'"/'*) ok "[YL-02] JOIN prompt emits an absolute attach path" ;;
+  *) bad "[YL-02] JOIN prompt still emits a relative path: $ATTACH_LINE" ;;
 esac
 # the emitted line must actually run — from a cwd that is not the workspace
 if ( cd / && eval "$ATTACH_LINE" ) >/dev/null 2>&1; then
-  ok "the emitted first-action line runs from a foreign cwd"; else bad "emitted attach line does not run from /"; fi
+  ok "[YL-02] the emitted first-action line runs from a foreign cwd"; else bad "[YL-02] emitted attach line does not run from /"; fi
 
 # YL-03 · exit code must report whether the handoff was built.
 HO="$WS/ho"; mkdir -p "$HO"
@@ -342,37 +342,37 @@ HSUM="$(ls "$HARC"/_SUMMARY_*.md 2>/dev/null | head -1)"
 sedi 's/- (fill in)/- the phase-owned runtime boundary is settled and snapshots are taken at transition edges/' "$HSUM"
 ( cd "$HO" && "$BIN/arc-close" "$HARC" "GO: build it" --stop=converged ) >/dev/null 2>&1
 ( cd "$HO" && YEOUL_PROJECTS="$HO/projects" "$BIN/build-handoff" hp ) >/dev/null 2>&1
-assert "build-handoff exits 0 on the SUCCESS path (closed arc found)" 0 $?
-if [ -f "$HO/projects/hp/dev/TODO.md" ]; then ok "build-handoff produced dev/TODO.md"; else bad "no TODO.md"; fi
+assert "[YL-03] build-handoff exits 0 on the SUCCESS path (closed arc found)" 0 $?
+if [ -f "$HO/projects/hp/dev/TODO.md" ]; then ok "[YL-03] build-handoff produced dev/TODO.md"; else bad "[YL-03] no TODO.md"; fi
 ( cd "$HO" && YEOUL_PROJECTS="$HO/projects" "$BIN/build-handoff" hp ) >/dev/null 2>&1
-assert "a real failure (already exists) still exits non-zero" 1 $?
+assert "[YL-03] a real failure (already exists) still exits non-zero" 1 $?
 
 # YL-06 · `--all` has to mean all.
 ARCHN="$( cd "$HO" && YEOUL_PROJECTS="$HO/projects" "$BIN/arc-list" --all 2>/dev/null | grep -c '_archive' )"
-if [ "$ARCHN" -ge 1 ]; then ok "arc-list --all includes archived arcs ($ARCHN)"; else bad "--all still hides the archive"; fi
+if [ "$ARCHN" -ge 1 ]; then ok "[YL-06] arc-list --all includes archived arcs ($ARCHN)"; else bad "[YL-06] --all still hides the archive"; fi
 OPENN="$( cd "$HO" && YEOUL_PROJECTS="$HO/projects" "$BIN/arc-list" 2>/dev/null | grep -c '_archive' )"
-if [ "$OPENN" -eq 0 ]; then ok "default listing still shows open arcs only"; else bad "default listing leaked archived arcs"; fi
+if [ "$OPENN" -eq 0 ]; then ok "[YL-06] default listing still shows open arcs only"; else bad "[YL-06] default listing leaked archived arcs"; fi
 
 # YL-08 · omitting --tokens must not look like a measured zero.
 LG="$WS/lg"; mkdir -p "$LG"
 "$BIN/loop-guard" "$LG" init --max-rounds=99 --token-budget=1000 >/dev/null 2>&1
 "$BIN/loop-guard" "$LG" tick >/dev/null 2>&1
 if "$BIN/loop-guard" "$LG" status 2>/dev/null | grep -q 'unmeasured='; then
-  ok "a tick with no token count is flagged unmeasured (with a denominator)"
-else bad "unmeasured ticks are indistinguishable from a measured zero"; fi
+  ok "[YL-08] a tick with no token count is flagged unmeasured (with a denominator)"
+else bad "[YL-08] unmeasured ticks are indistinguishable from a measured zero"; fi
 LG2="$WS/lg2"; mkdir -p "$LG2"
 "$BIN/loop-guard" "$LG2" init --max-rounds=99 --token-budget=1000 >/dev/null 2>&1
 "$BIN/loop-guard" "$LG2" tick --tokens=400 >/dev/null 2>&1
 "$BIN/loop-guard" "$LG2" tick --tokens=400 >/dev/null 2>&1
 if "$BIN/loop-guard" "$LG2" tick --tokens=400 2>/dev/null | grep -q 'STOP:budget'; then
-  ok "a reported budget still stops the loop"; else bad "budget guard did not fire"; fi
+  ok "[YL-08] a reported budget still stops the loop"; else bad "[YL-08] budget guard did not fire"; fi
 if "$BIN/loop-guard" "$LG2" status 2>/dev/null | grep -q 'unmeasured='; then
-  bad "measured ticks wrongly flagged unmeasured"; else ok "measured ticks carry no warning"; fi
+  bad "[YL-08] measured ticks wrongly flagged unmeasured"; else ok "[YL-08] measured ticks carry no warning"; fi
 
 # YL-09 · the seal message must name the condition the code actually tested.
 if grep -rq 'install mirror-stack for sealing' "$BIN"/arc-close "$BIN"/close-project 2>/dev/null; then
-  bad "seal message still blames installation for a PATH test"
-else ok "seal message names the tested condition (\`am\` on PATH), not an assumed cause"; fi
+  bad "[YL-09] seal message still blames installation for a PATH test"
+else ok "[YL-09] seal message names the tested condition (\`am\` on PATH), not an assumed cause"; fi
 
 echo
 if [ "$CHECKS" -eq 0 ]; then
