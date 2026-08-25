@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # arc-list [--roots="dir1 dir2"] [--all]
-#   Find open deliberation arcs (default status=In-Progress only; --all = every arc). _archive excluded.
+#   Find deliberation arcs. Default: open (status=In-Progress), _archive excluded.
+#   --all = EVERY arc, archived ones included (they are the closed record; excluding them made --all
+#   return nothing on a workspace whose only arc had been closed). Archived rows carry status=Archived.
 #   Default roots = ./projects/*/design/arcs. Output (tab-separated): STATUS \t ARC_DIR \t TITLE \t ROLES
 
 PROJECTS_DIR="${YEOUL_PROJECTS:-./projects}"
@@ -19,9 +21,14 @@ field() { grep -m1 "^$1:" "$2" 2>/dev/null | sed "s/^$1:[[:space:]]*//; s/\"//g"
 for root in $ROOTS; do
   [ -d "$root" ] || continue
   while IFS= read -r arcfile; do
-    case "$arcfile" in */_archive/*) continue ;; esac
+    # 🔴 `--all` has to mean all. This skip used to run BEFORE the OPEN_ONLY test, so the flag
+    #    named a coverage it did not have: with one closed arc on disk, `--all` printed nothing.
+    archived=0
+    case "$arcfile" in */_archive/*) archived=1 ;; esac
+    if [ "$archived" = "1" ] && [ "$OPEN_ONLY" = "1" ]; then continue; fi
     arcdir="$(cd "$(dirname "$(dirname "$arcfile")")" && pwd)"
     status="$(field status "$arcfile")"
+    if [ "$archived" = "1" ]; then status="Archived"; fi
     title="$(field title "$arcfile")"
     roles="$(field roles "$arcfile")"
     if [ "$OPEN_ONLY" = "1" ] && [ "$status" != "In-Progress" ]; then continue; fi

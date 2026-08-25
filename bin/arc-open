@@ -165,6 +165,18 @@ MDEOF
 } > "$ARC_DIR/ROSTER.md"
 
 # ── JOIN_PROMPTS (A = agent prompt / B = paste into external tab; same body) ──
+# 🔴 A join prompt is an instruction someone will RUN, from a cwd we do not control. It used to
+#    emit the workspace-relative `bin/arc-attach "./projects/..."`, which resolves only when the
+#    reader happens to sit in the repo root — and setup/install.sh explicitly does NOT promise bin/
+#    on PATH ("add to PATH, or call by path"). An MCP-only install has no ./bin at all, so every
+#    role's mandated first action failed (field report, 2026-08-24). Emit resolved absolute paths,
+#    and refuse to print a command we could not confirm is executable.
+ATTACH_BIN="$SCRIPT_DIR/arc-attach"
+if [ ! -x "$ATTACH_BIN" ]; then
+  echo "arc-open: cannot find an executable arc-attach at $ATTACH_BIN" >&2
+  exit 1
+fi
+ARC_DIR_ABS="$(cd "$ARC_DIR" && pwd)"
 {
   echo "# 🔗 Join prompts — ${ARC}"
   echo
@@ -177,7 +189,7 @@ MDEOF
     echo "You are the '${r}' role of deliberation arc ${ARC}. Topic: ${TOPIC}."
     echo ""
     echo "★ First action — run ONLY this line and act on its output (no improvisation):"
-    echo "   bin/arc-attach \"${ARC_DIR}\" ${r}"
+    echo "   \"${ATTACH_BIN}\" \"${ARC_DIR_ABS}\" ${r}"
     echo "   → it assigns your role, starts the watcher, and dictates your ticket order."
     echo ""
     echo "[invariant] Do NOT edit the deliberation thread directly (relay-only). Your output = answer in tickets/${r}/ + status open→answered."

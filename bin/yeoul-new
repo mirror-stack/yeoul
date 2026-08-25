@@ -25,17 +25,32 @@ fi
 
 PROJ_DIR="$PROJECTS_DIR/$NAME"
 if [ -e "$PROJ_DIR" ]; then echo "already exists: $PROJ_DIR"; exit 1; fi
+
+# 🔴 Build the scaffold in a staging dir and move it into place only once every step succeeded.
+#    This used to mkdir the real tree first and then render the spec, so a topic containing `/`
+#    (e.g. "fast/medium/slow") blew up the sed below — `unknown option to 's'` — and left
+#    projects/<name>/{design/arcs,dev} plus an empty spec.md behind under `set -e`. The retry then
+#    hit "already exists". Staging keeps failure atomic: nothing lands unless everything worked.
+mkdir -p "$PROJECTS_DIR"
+STAGE="$(mktemp -d "$PROJECTS_DIR/.staging-$NAME.XXXXXX")"   # same filesystem → mv is atomic
+cleanup_stage() { [ -n "${STAGE:-}" ] && rm -rf "$STAGE"; }
+trap cleanup_stage EXIT
+
 DESIGN_DIR="$PROJ_DIR/design"
-mkdir -p "$DESIGN_DIR/arcs" "$PROJ_DIR/dev"
+S_DESIGN="$STAGE/design"
+mkdir -p "$S_DESIGN/arcs" "$STAGE/dev"
 
 TEMPLATE="$SCRIPT_DIR/../templates/spec.md"
 if [ -f "$TEMPLATE" ]; then
-  sed "s/<topic>/$TOPIC/g" "$TEMPLATE" > "$DESIGN_DIR/spec.md"
+  # 🔴 literal substitution, not sed: the topic is arbitrary user text and must never be parsed as
+  #    a sed expression. Bash pattern replacement has no delimiter to escape and no regex to escape.
+  TPL="$(cat "$TEMPLATE")"
+  printf '%s\n' "${TPL//<topic>/$TOPIC}" > "$S_DESIGN/spec.md"
 else
-  echo "# 📐 Spec — $TOPIC" > "$DESIGN_DIR/spec.md"
+  printf '# 📐 Spec — %s\n' "$TOPIC" > "$S_DESIGN/spec.md"
 fi
 
-cat > "$PROJ_DIR/README.md" << MDEOF
+cat > "$STAGE/README.md" << MDEOF
 # $NAME
 
 > Yeoul incubator project. Topic: $TOPIC
@@ -45,6 +60,10 @@ cat > "$PROJ_DIR/README.md" << MDEOF
 - when mature: \`yeoul-graduate $NAME\`.
 MDEOF
 
+# everything rendered; publish the staged tree in one move, then stop cleaning it up.
+mv "$STAGE" "$PROJ_DIR"
+STAGE=""; trap - EXIT
+
 echo "┌─ Yeoul project created ─┐"
 echo "  project: $NAME"
 echo "  dirs   : $PROJ_DIR/{design,dev}"
@@ -53,6 +72,18 @@ echo "  spec   : $DESIGN_DIR/spec.md"
 if [ "$MAKE_ARC" -eq 1 ]; then
   SLUG="$(echo "$NAME" | tr ' ' '_')"
   echo
+  # 🔴 if the arc fails to open, the project must not survive half-built — same reason as above.
+  # 🔴 capture the real code. `if ! cmd; then rc=$?` records the *negation's* status (always 0),
+  #    so a failing arc-open was rolled back and then reported as "exit 0" — the same class of bug
+  #    this commit exists to remove. Caught by the rollback test below, which asserted the code.
+  set +e
   bash "$SCRIPT_DIR/arc-open" "$SLUG" --topic="$TOPIC" --roles="$ROLES" --backend="$BACKEND" \
     --arcs-dir="$DESIGN_DIR/arcs"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    rm -rf "$PROJ_DIR"
+    echo "arc-open failed (exit $rc) — rolled back $PROJ_DIR so a retry starts clean" >&2
+    exit "$rc"
+  fi
 fi

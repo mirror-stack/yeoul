@@ -73,4 +73,12 @@ echo "┌─ dev handoff ─┐"
 echo "  project: $NAME"
 echo "  verdict: ${VERDICT:-TBD}"
 echo "  created: dev/dev-plan.md · dev/TODO.md  (fill blanks from _SUMMARY)"
-[ -z "$SUMMARY" ] && echo "  ⚠️ no closed arc — usually run after a GO close"
+if [ -z "$SUMMARY" ]; then
+  echo "  ⚠️ no closed arc — usually run after a GO close"
+fi
+# 🔴 exit code must report whether the handoff was BUILT, not what the last test happened to
+#    return. This line used to be `[ -z "$SUMMARY" ] && echo ...`: with a closed arc found the test
+#    is false, `&&` short-circuits, and the script exited 1 *on the success path only*. Both paths
+#    here created dev-plan.md + TODO.md, so both are exit 0; the missing arc is a warning, not a
+#    failure. Real failures above (no project / already exists) still exit non-zero with a cause.
+exit 0

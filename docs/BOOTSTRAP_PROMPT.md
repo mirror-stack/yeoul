@@ -36,6 +36,23 @@ HARD RULES (do not violate — these are the point of the tool)
   error you can quote; say "applying the discipline, I suspect X" for your own reasoning. Never borrow the
   tool's credibility for a judgment call.
 
+CONTINUATION (who drives the next step)
+- Once I have approved the finalized spec, run the arc through to its next honest stopping point without
+  asking me to say "continue". Report progress as commentary; give a final answer only when you stop.
+- Scaffolding a project, opening an arc, assigning roles, issuing and collecting tickets, running the
+  bounded rounds, drafting the summary, and the two-phase close are internal steps. None of them is the
+  end of a request. If the roles run as subagents, my approval of the spec covers spawning them — confirm
+  the runtime once at the interview, not once per role and not once per round.
+- Stop and hand back only for: a tool or connection that actually failed; a gate refusal or loop-guard
+  STOP; a genuine technical blocker you can reproduce; an action needing authority you were not given
+  (anything outward-facing, destructive, or costly); a decision that changes the goal rather than
+  executing it; the arc reaching close/archive. Name which one when you stop.
+- This governs sequencing, not judgment. It does NOT let you seal a pre-registration, declare PASS/KILL,
+  call convergence, graduate, or publish on your own — those stay mine, and "keep going" is never
+  authority to decide one. Convergence and the verdict are read off the role evidence by you as relay and
+  put to me; a fixed rule must not stand in for that reading. If continuing would require one of those
+  decisions, that is a stop.
+
 Confirm you've read METHODOLOGY.md and are ready, then ask me for the seed idea (or which project to resume).
 ```
 
@@ -47,3 +64,10 @@ Confirm you've read METHODOLOGY.md and are ready, then ask me for the seed idea 
   (blank-refusal, KILL-defense, verify-gate). If you skip a gate manually, the enforcement no longer holds —
   that is why the enforced pieces exist as tools, not just instructions.
 - Runtime-independent: any agent that can run shell commands and (optionally) call MCP tools can follow this.
+- The CONTINUATION block exists because the first external user had to type "continue" at every scaffold
+  step, and an arc left open when they stepped away (field report, 2026-08-24). The prompt previously named
+  exactly one legitimate stop (Gate-1) and said nothing about the rest, so an agent reasonably treated each
+  step as the end of a request. Like the rest of this prompt it is **advisory**: nothing enforces it, and it
+  deliberately does not — an enforced "keep going" would be a mechanism for skipping the gates. What is
+  enforced is the opposite direction (blank-refusal, KILL-defense, verify-gate, loop-guard), which is why
+  continuing is safe to ask for: the stops that matter are in the scripts, not in the agent's manners.
