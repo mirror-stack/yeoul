@@ -442,6 +442,44 @@ else
 fi
 rm -rf "$STUBD"
 
+# ── the verdict channel must not depend on the console encoding ───────────────────────────────
+# Measured on Windows 2026-08-25: two machines, same PR. On one, two checks failed with
+# `could not run the substance checker` — the checker had finished judging and then died *writing
+# its result back*, because the answer contained an em-dash and stdout was cp949. stdout came back
+# empty, the gate refused (correctly: an unmeasured field is not a passing field), and a genuine
+# answer was rejected with nothing in the refusal pointing at encoding.
+#
+# 🔴 The second machine passed, and that green was a coincidence: cp1252 happens to contain the
+#    em-dash, cp949 does not. Neither contains Hangul, and our summaries are written in Korean — so
+#    both machines carry the same defect and only one showed it. Testing one synthetic encoding
+#    would repeat the mistake, so this runs the two real code pages and asserts on a payload built
+#    to be lethal to both: U+2014 (absent from cp949) and U+AC00 (absent from cp1252).
+echo
+echo "── verdict channel encoding ──"
+NONASCII="$(printf '— 가')"
+ENCLINE="- **Sealed-condition cross-check**: converged ${NONASCII} design settled, non-ascii included"
+TAB_="$(printf '\t')"
+for CP in ascii cp949 cp1252; do
+  EOUT="$( printf '%s' "$ENCLINE" | env -u PYTHONUTF8 PYTHONIOENCODING="$CP" \
+           $PY "$BIN/substance_check.py" --label 'Sealed-condition cross-check' 2>/dev/null )"
+  if [ -n "$EOUT" ] && [ "${EOUT%%"$TAB_"*}" = "OK" ]; then
+    ok "[ENC-01/$CP] a non-ASCII answer still returns its verdict"
+  else bad "[ENC-01/$CP] verdict channel produced [$EOUT]"; fi
+  # 🔴 surviving is not enough — the answer must come back INTACT. Pinning the stream with
+  #    errors="replace" would keep the code alive and hand back an answer full of `?`: the gate
+  #    would then judge, report, and quote mangled evidence. Writing UTF-8 bytes to stdout.buffer
+  #    sidesteps the console code page entirely, so this asserts the characters are still there.
+  if printf '%s' "${EOUT#*"$TAB_"}" | grep -qF "$NONASCII"; then
+    ok "[ENC-02/$CP] the answer round-trips intact, not replaced with '?'"
+  else bad "[ENC-02/$CP] answer came back mangled: [${EOUT#*"$TAB_"}]"; fi
+  # and the checker's own positive control has to run through that same channel, or it vouches for
+  # nothing — it scored 27/27 on the machine where every real call carrying an em-dash was dying.
+  ESELF="$( env -u PYTHONUTF8 PYTHONIOENCODING="$CP" $PY "$BIN/substance_check.py" --selftest 2>&1 )"
+  if printf '%s' "$ESELF" | grep -q 'selftest: [0-9]*/[0-9]*'; then
+    ok "[ENC-03/$CP] the checker's positive control passes through the channel it vouches for"
+  else bad "[ENC-03/$CP] selftest did not survive: $(printf '%s' "$ESELF" | tail -1)"; fi
+done
+
 echo
 if [ "$CHECKS" -eq 0 ]; then
   echo "⛔ 0/0 — no checks were collected; an empty run is a failure, not a pass"

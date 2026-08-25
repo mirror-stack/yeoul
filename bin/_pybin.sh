@@ -15,6 +15,15 @@
 #
 # Override with YEOUL_PYTHON if you need a specific interpreter.
 
+# 🔴 Every gate script here shells out to Python and echoes text back through it — verdicts, kill
+#    conditions, arc titles. Python encodes stdout with the *caller's console encoding*, so on a
+#    console that is not UTF-8 a single non-ASCII character (an em-dash was enough) raises
+#    UnicodeEncodeError, kills the child, and hands the caller EMPTY output. The MCP wrapper already
+#    pins these for the tools it launches; the shell scripts called Python directly and bypassed it.
+#    Pin them here, where every script picks up the interpreter.
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
+
 yeoul_pybin() {
   local c
   for c in ${YEOUL_PYTHON:+"$YEOUL_PYTHON"} python3 python "py -3"; do

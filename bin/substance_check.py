@@ -293,10 +293,47 @@ def selftest(verbose=False):
     return total - len(fails), total, fails
 
 
+def emit(code, ans):
+    """The verdict channel. ASCII code, TAB, answer — written as UTF-8 BYTES.
+
+    🔴 This used to be `sys.stdout.write(...)`, whose encoding is the caller's console encoding. On a
+      console that is not UTF-8, echoing back an answer containing any non-ASCII character (an
+      em-dash was enough) raised UnicodeEncodeError, killed the process, and left stdout EMPTY. The
+      gate reads its verdict from this output and correctly refuses on empty ("an unmeasured field is
+      not a passing field") — so a genuine answer was refused, on one machine and not another, and
+      nothing in the refusal pointed at encoding. Measured on Windows 2026-08-25; reproduced with
+      PYTHONIOENCODING=ascii. The contract is bytes, so it cannot depend on where it is being read.
+    """
+    sys.stdout.buffer.write((code + "\t" + ans).encode("utf-8", "replace"))
+    sys.stdout.buffer.flush()
+
+
 def main(argv):
     if "--selftest" in argv:
         ok, total, fails = selftest(verbose=True)
         # 🔴 Print the DENOMINATOR. A checker that measured nothing also prints green.
+        # 🔴 Echo a non-ASCII answer through the real output path before declaring the checker sound.
+        #    The selftest prints an ASCII-only summary, so it scored 27/27 on a machine where every
+        #    real call carrying an em-dash died writing its result. A positive control that never
+        #    exercises the path under test vouches for nothing.
+        # 🔴 through emit(), the SAME function the real call uses. An earlier version of this
+        #    control wrote the probe with sys.stdout.buffer directly — it therefore vouched for a
+        #    path the product does not take, and stayed green with the defect reinstated.
+        probe = "em-dash \u2014 and hangul \uac00 must survive the verdict channel"
+        try:
+            emit("SELFTEST_ECHO", probe)
+            sys.stdout.buffer.write(b"\n")
+            sys.stdout.buffer.flush()
+        except Exception as e:            # pragma: no cover - the failure this exists to catch
+            # 🔴 report on stderr, in pure ASCII. The first version used print(... %r) — repr of a
+            #    UnicodeEncodeError contains the offending character, sent through the very channel
+            #    that just failed, so the diagnostic died while reporting the fault it exists to
+            #    report. A failure message must not depend on what it is reporting about.
+            msg = ("substance_check selftest: FAILED to write a non-ASCII verdict: %s\n"
+                   % type(e).__name__)
+            sys.stderr.buffer.write(msg.encode("ascii", "replace"))
+            sys.stderr.buffer.flush()
+            return 9
         print("substance_check selftest: %d/%d (violations %d - genuine %d - raw %d)"
               % (ok, total, len(_PLANT_VIOLATIONS), len(_PLANT_GENUINE), len(_PLANT_RAW)))
         return 0 if not fails else 9
@@ -306,7 +343,7 @@ def main(argv):
     code, ans = extract(sys.stdin.buffer.read())
     if code == "OK":
         code, _ = judge(label, ans)
-    sys.stdout.write(code + "\t" + ans)
+    emit(code, ans)
     return 0 if code == "OK" else 1
 
 
