@@ -27,6 +27,19 @@ DISCIPLINE = (
 
 mcp = FastMCP("yeoul", instructions=DISCIPLINE)
 
+# `FastMCP.__init__` takes no `version`, so `Server.version` stays None and the SDK substitutes its
+# OWN version into `serverInfo`. Measured on this server before this line existed: it announced
+# `{"name": "yeoul", "version": "1.27.2"}` — the installed `mcp` release, not `0.1.0`. A client
+# reading serverInfo to tell yeoul builds apart was reading the SDK's number instead.
+#   Source `__version__`, NOT `importlib.metadata.version("yeoul-mcp")`: under an editable install
+#   the dist-info can carry a stale number, which would swap one wrong value for another.
+try:  # installed, or imported as a package (console script, CI, tests)
+    from yeoul_mcp import __version__
+except ImportError:  # executed as a bare file: the package's parent isn't on sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from yeoul_mcp import __version__
+mcp._mcp_server.version = __version__
+
 BIN = Path(os.environ.get("YEOUL_BIN", Path(__file__).resolve().parents[2] / "bin"))
 
 

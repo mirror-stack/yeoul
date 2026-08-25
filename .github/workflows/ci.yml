@@ -71,3 +71,7 @@ jobs:
           PY
       - name: _run subprocess contract (stdin never inherited, UTF-8 pinned)
         run: python mcp/tests/test_run_contract.py
+      - name: serverInfo contract (announces its own version, not the SDK's)
+        # The import check above proves the module loads; it never reads the handshake. This
+        # step launches the server and reads what it actually says on the wire.
+        run: python mcp/tests/test_serverinfo_version.py
