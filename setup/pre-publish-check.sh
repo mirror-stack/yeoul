@@ -6,6 +6,10 @@ set -uo pipefail
 #   3) empty-scaffolding guard (a runnable worked example must exist)
 # Exit 0 = clean · non-zero = issues found (do not publish yet).
 
+# Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"/_pybin.sh
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 FAIL=0
@@ -29,7 +33,7 @@ echo "── 1) personalization leak scan ──"
 #   (b) private absolute paths (/home/... or /data/...) that must not ship.
 # Intentional localizations are allowed (README_KO.md, *.ko.md, docs/ko/); Hangul anywhere else is a leak.
 # Hangul detection via python (portable — GNU grep's -P is unavailable on macOS/BSD).
-# NB: the file list goes through a temp file, not a pipe. `python3 - <<PY` makes the heredoc
+# NB: the file list goes through a temp file, not a pipe. `$PY - <<PY` makes the heredoc
 #     itself stdin, so a piped list never arrives and the scan silently reads nothing —
 #     a guard that inspected zero files and still reported "clean" (caught by its positive control).
 FILELIST="$(mktemp)"; publishable_files > "$FILELIST"
@@ -41,7 +45,7 @@ if [ "${SCANNED:-0}" -eq 0 ]; then
   echo "  ✗ scanned 0 files — an empty scan is a failure, not a pass"
   FAIL=1
 fi
-HANGUL="$(python3 - "$REPO" "$FILELIST" <<'PY'
+HANGUL="$($PY - "$REPO" "$FILELIST" <<'PY'
 import os, re, sys
 root = sys.argv[1]; h = re.compile('[\uac00-\ud7a3]')  # Hangul syllables (escaped → this file stays Hangul-free)
 rels = [x.rstrip('\n') for x in open(sys.argv[2], encoding='utf-8') if x.strip()]

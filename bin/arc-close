@@ -10,6 +10,10 @@ set -euo pipefail
 #   ★Optional: seal the close into an append-only ledger (mirror-stack `am`, content-hash = _SUMMARY). Best-effort.
 #   Negatives / retractions are recorded indelibly (no silent edits).
 
+# Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_pybin.sh"
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+
 ARC_DIR="${1:-}"; VERDICT="${2:-}"; STOP="converged"
 for arg in "${@:3}"; do
   case "$arg" in --stop=*) STOP="${arg#--stop=}" ;; esac
@@ -48,7 +52,7 @@ case "$VERDICT" in *KILL*|*kill*) IS_KILL="yes" ;; esac
 # NOTE: this fixes the *condition* by reference; whether the result triggers it remains a judgment.
 extract_kill() { # extract_kill <ledger> <claim_id> → verbatim kill_condition (whitespace-collapsed), else empty
   [ -f "$1" ] || return 0
-  python3 - "$1" "$2" 2>/dev/null <<'PY'
+  $PY - "$1" "$2" 2>/dev/null <<'PY'
 import json, sys
 led, cid = sys.argv[1], sys.argv[2]
 for line in open(led, encoding='utf-8', errors='ignore'):
@@ -127,7 +131,7 @@ check_answers() { # check_answers <section start marker>
   #   If the checker cannot separate planted violations from planted genuine answers, we do NOT
   #   interpret the real answers — we die. An instrument is not trusted because it is green;
   #   it is trusted because it just proved it can still say no.
-  if ! st="$(python3 "$SUBSTANCE" --selftest 2>&1)"; then
+  if ! st="$($PY "$SUBSTANCE" --selftest 2>&1)"; then
     echo "⛔ seal refused: the substance checker failed its own positive control — the instrument is broken, so the real verdict is not interpreted."
     printf '%s\n' "$st" | sed 's/^/    /'
     exit 6
@@ -139,7 +143,7 @@ check_answers() { # check_answers <section start marker>
     # 🔴 Read the verdict from the emitted CODE, not the exit status. If the checker cannot run at
     #    all the output is empty — which is not OK — so this **fails closed**. A false default would
     #    turn "never measured" into "measured and fine".
-    vout="$(printf '%s' "$vline" | python3 "$SUBSTANCE" --label "$vlabel" 2>/dev/null || true)"
+    vout="$(printf '%s' "$vline" | $PY "$SUBSTANCE" --label "$vlabel" 2>/dev/null || true)"
     vcode="${vout%%"$TAB"*}"; vans="${vout#*"$TAB"}"
     [ "$vcode" = "OK" ] && continue
     case "$vcode" in

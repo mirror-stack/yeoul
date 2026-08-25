@@ -5,6 +5,10 @@ set -euo pipefail
 #     ARC/<arc>.md (deliberation thread) + tickets/<role>/ + STATE.md + ROSTER.md + JOIN_PROMPTS.md + 0001_spec.md
 #   Generic file-based deliberation engine. Runtime-agnostic. Callers pass --arcs-dir to place the arc.
 
+# Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_pybin.sh"
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SLUG="${1:-}"; TOPIC=""; ROLES="analysis impl repro"; BACKEND="both"; ARCS_DIR=""; RELAY="orchestrator"
@@ -27,8 +31,10 @@ case "$BACKEND" in a|b|both) ;; *) echo "backend must be a|b|both"; exit 1 ;; es
 
 # ── Gate-1: prior-art / closed-question check (optional; warn-only, non-blocking; skipped if no registry) ──
 REGISTRY="${YEOUL_CLOSED_REGISTRY:-$SCRIPT_DIR/../registry/closed_questions.jsonl}"
-if command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/closed_check.py" ] && [ -f "$REGISTRY" ]; then
-  G1WARN="$(python3 "$SCRIPT_DIR/closed_check.py" "$TOPIC" "$REGISTRY" 2>/dev/null || true)"
+# no interpreter name-check here: $PY was resolved by running one, and a run with no working
+# interpreter has already stopped at yeoul_pybin_die.
+if [ -f "$SCRIPT_DIR/closed_check.py" ] && [ -f "$REGISTRY" ]; then
+  G1WARN="$($PY "$SCRIPT_DIR/closed_check.py" "$TOPIC" "$REGISTRY" 2>/dev/null || true)"
   if [ -n "$G1WARN" ]; then
     echo "── ⚠️ Gate-1 closed-question match ──"
     echo "$G1WARN"

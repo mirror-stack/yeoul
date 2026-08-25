@@ -13,6 +13,10 @@ set -uo pipefail
 #   has already established that every item in a loop-driven TODO carries a verify command.
 #   Default stays off so a mixed TODO (loop items + manual items) can still be scanned standalone.
 
+# Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_pybin.sh"
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+
 TODO="${1:-}"; REVERT=0; REQUIRE=0
 for a in "${@:2}"; do case "$a" in
   --revert)         REVERT=1 ;;
@@ -37,7 +41,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   elif printf '%s' "$line" | grep -qE '^- \[x\].*verify:[[:space:]]*`[^`]+`'; then
     # extract the FIRST verify block via python (sed's greedy `.*verify:` grabbed the LAST block,
     # letting an appended decoy `verify: `true`` override a real failing command).
-    cmd="$(printf '%s' "$line" | python3 -c 'import sys,re; m=re.search(r"verify:\s*`([^`]+)`", sys.stdin.read()); sys.stdout.write(m.group(1) if m else "")')"
+    cmd="$(printf '%s' "$line" | $PY -c 'import sys,re; m=re.search(r"verify:\s*`([^`]+)`", sys.stdin.read()); sys.stdout.write(m.group(1) if m else "")')"
     if ! bash -c "$cmd" >/dev/null 2>&1; then
       FAIL=1
       short="$(printf '%s' "$line" | sed -E 's/^(- \[x\][^:]{0,50}).*/\1/')"

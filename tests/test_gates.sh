@@ -6,6 +6,10 @@ set -uo pipefail
 #     2. ralph verify-gate: unchecked item without `verify:` is refused (3)
 #   Exit 0 = all gates behaved as specified.
 
+# Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"/_pybin.sh
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"
 WS="$(mktemp -d)"; trap 'rm -rf "$WS"' EXIT
 cd "$WS"; export YEOUL_PROJECTS="$WS/projects"
@@ -189,7 +193,7 @@ EARC="$(ls -d "$WS"/arcs/*_enc)"
 ESUM="$(ls "$EARC"/_SUMMARY_*.md)"
 sedi 's/- (fill in)/- concrete conclusion here/' "$ESUM"
 sedi 's/(unfilled)/yes/g' "$ESUM"
-python3 - "$ESUM" <<'PYDAMAGE'
+$PY - "$ESUM" <<'PYDAMAGE'
 import sys
 p = sys.argv[1]
 out = []
@@ -222,8 +226,8 @@ esac
 # 28 of 28 evasive answers sealed. These assertions pin the class in BOTH directions — a
 # repair that only tightened would pass the top half and quietly reject real answers.
 SUBSTANCE="$BIN/substance_check.py"
-python3 "$SUBSTANCE" --selftest >/dev/null 2>&1; assert "substance checker passes its own positive control" 0 $?
-echo "    $(python3 "$SUBSTANCE" --selftest 2>&1 | tail -1)"   # 🔴 print the denominator, not just green
+$PY "$SUBSTANCE" --selftest >/dev/null 2>&1; assert "substance checker passes its own positive control" 0 $?
+echo "    $($PY "$SUBSTANCE" --selftest 2>&1 | tail -1)"   # 🔴 print the denominator, not just green
 
 subst_case() { # subst_case <desc> <answer> <expected-exit>
   "$BIN/arc-open" sc --topic="substance" --arcs-dir="$WS/arcs" >/dev/null 2>&1
@@ -232,7 +236,7 @@ subst_case() { # subst_case <desc> <answer> <expected-exit>
   local S; S="$(ls "$A"/_SUMMARY_*.md)"
   sedi 's/- (fill in)/- concrete conclusion here/' "$S"
   # anchor/catalog have their own branches; drive the general branch with the candidate
-  python3 - "$S" "$2" <<'PYFILL'
+  $PY - "$S" "$2" <<'PYFILL'
 import sys, re
 p, ans = sys.argv[1], sys.argv[2]
 out = []
@@ -267,7 +271,7 @@ subst_case "genuine answer carrying a deferral CLAUSE still seals" \
 # A documented fallback is untested code. Sabotage the checker so it can never say no, then
 # assert the gate REFUSES TO INTERPRET (exit 6) instead of sealing an evasive answer.
 SBIN="$(mktemp -d)"; cp "$BIN"/* "$SBIN/" 2>/dev/null
-python3 - "$SBIN/substance_check.py" <<'PYSAB'
+$PY - "$SBIN/substance_check.py" <<'PYSAB'
 import sys
 p = sys.argv[1]; s = open(p, encoding="utf-8").read()
 i = s.index("def judge(label, ans):")
@@ -275,7 +279,7 @@ s = s[:i] + 'def judge(label, ans):\n    return "OK", ans\n\ndef _judge_disabled
 open(p, "w", encoding="utf-8").write(s)
 PYSAB
 # the sabotage must actually have landed, or every assertion below passes vacuously
-python3 "$SBIN/substance_check.py" --selftest >/dev/null 2>&1 \
+$PY "$SBIN/substance_check.py" --selftest >/dev/null 2>&1 \
   && { echo "  ✗ sabotage did NOT land — the checks below would pass for the wrong reason"; FAIL=1; } \
   || echo "  ✓ sabotage landed (checker can no longer fail a planted violation)"
 "$SBIN/arc-open" sb --topic="sabotage" --arcs-dir="$WS/arcs" >/dev/null 2>&1
@@ -373,6 +377,111 @@ if "$BIN/loop-guard" "$LG2" status 2>/dev/null | grep -q 'unmeasured='; then
 if grep -rq 'install mirror-stack for sealing' "$BIN"/arc-close "$BIN"/close-project 2>/dev/null; then
   bad "[YL-09] seal message still blames installation for a PATH test"
 else ok "[YL-09] seal message names the tested condition (\`am\` on PATH), not an assumed cause"; fi
+
+# ── interpreter resolution: a name that resolves is not an interpreter that runs ──────────────
+# Windows ships a Microsoft Store stub that answers to `python3` and exits 49 without running
+# anything. `command -v python3` is satisfied by it, so the whole gate suite scored 34/48 on two
+# Windows machines — printed as `✗ expected 0, got 49`, which reads like a verdict and is actually
+# the absence of a measurement. Reproduced here with a stub, so this is testable off Windows.
+echo
+echo "── interpreter resolution ──"
+# Say which interpreter this run actually used. Without it a failure report from another machine
+# cannot distinguish "resolved a different interpreter" from "the check itself is broken there".
+# 🔴 print the PATH too, not just the name and version. Two machines reported different results
+#    with the same name and the same version — the interpreter each had resolved was a *different
+#    venv* that happened to sit ahead on PATH, and the name+version line could not show that.
+echo "  ℹ resolved: $PY -> $($PY -c 'import sys,platform; print(sys.executable, platform.python_version(), sys.platform)' 2>&1 | head -1)"
+STUBD="$WS/stub"; mkdir -p "$STUBD"
+mkstub() { printf '#!/usr/bin/env bash\necho "Python" >&2\nexit 49\n' > "$STUBD/$1"; chmod +x "$STUBD/$1"; }
+
+mkstub python3
+if ( PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; [ "$(yeoul_pybin)" != "python3" ] ) 2>/dev/null; then
+  ok "[PY-01] a stub that answers to the name is rejected (resolved by running, not by lookup)"
+else bad "[PY-01] the stub was accepted as an interpreter"; fi
+
+# the second Windows machine had a perfectly good `python` on PATH the whole time
+# 🔴 find the real interpreter by RUNNING candidates. `command -v python3` here would hand back
+#    the stub when this suite is itself run under a stubbed PATH — using a name lookup to locate a
+#    real interpreter, inside the test for that exact bug.
+REALPY=""
+for c in "$(command -v python3)" "$(command -v python)" /usr/bin/python3 /usr/bin/python; do
+  [ -n "$c" ] && "$c" -c 'raise SystemExit(0)' >/dev/null 2>&1 && { REALPY="$c"; break; }
+done
+# 🔴 a wrapper, not a symlink. `ln -s` is the only symlink this suite would use, and MSYS/Git Bash
+#    copies the target instead of linking unless winsymlinks is set — copying a Windows python.exe
+#    produces a broken standalone, so this check would fail for a reason that has nothing to do with
+#    what it is testing.
+printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$REALPY" > "$STUBD/python"; chmod +x "$STUBD/python"
+if ( PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; P="$(yeoul_pybin)"; $P -c 'raise SystemExit(0)' ) 2>/dev/null; then
+  ok "[PY-02] falls through to a working interpreter under another name"
+else bad "[PY-02] did not find the working interpreter that was on PATH"; fi
+
+# and when nothing runs, it must stop the run — not skip the step and let the skip read as a pass.
+# 🔴 This block must first ESTABLISH "nothing runs", and then check that it was established. The
+#    earlier version asserted it: it stubbed python3/python/py and assumed that covered every
+#    candidate. It did not — $YEOUL_PYTHON is tried first and is not a PATH name at all, and on
+#    Windows the .exe forms are separate files. With an interpreter still reachable the resolver
+#    correctly succeeded and these two checks failed, blaming the product for the test's own gap.
+#    (Reproduced by running the suite with YEOUL_PYTHON set: 50/52, the same score reported from a
+#    Windows machine.) A precondition that is assumed instead of measured is the defect this whole
+#    suite is about, so it is now measured — and if it cannot be met the checks report inconclusive
+#    rather than passing or failing, because neither verdict would mean anything.
+rm -f "$STUBD/python"
+for n in python3 python py python3.exe python.exe py.exe; do mkstub "$n"; done
+if ( unset YEOUL_PYTHON; PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; yeoul_pybin >/dev/null 2>&1 ); then
+  CHECKS=$((CHECKS+2))
+  echo "  ? [PY-03] could not establish 'no interpreter reachable' — an interpreter survived the"
+  echo "        stubbing, so neither PY-03 check is evidence here. Not counted as a pass."
+  FAIL=1
+else
+  ok "[PY-03] no working interpreter => resolution fails"
+  OUT="$( unset YEOUL_PYTHON; PATH="$STUBD:$PATH" bash "$BIN/status" 2>&1 )"; RC=$?
+  if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -q 'no working Python interpreter'; then
+    ok "[PY-03] a script stops with a named cause (exit $RC), it does not skip silently"
+  else bad "[PY-03] script exited $RC without naming the missing interpreter"; fi
+fi
+rm -rf "$STUBD"
+
+# ── the verdict channel must not depend on the console encoding ───────────────────────────────
+# Measured on Windows 2026-08-25: two machines, same PR. On one, two checks failed with
+# `could not run the substance checker` — the checker had finished judging and then died *writing
+# its result back*, because the answer contained an em-dash and stdout was cp949. stdout came back
+# empty, the gate refused (correctly: an unmeasured field is not a passing field), and a genuine
+# answer was rejected with nothing in the refusal pointing at encoding.
+#
+# 🔴 The second machine passed, and that green was a coincidence: cp1252 happens to contain the
+#    em-dash, cp949 does not. Neither contains Hangul, and our summaries are written in Korean — so
+#    both machines carry the same defect and only one showed it. Testing one synthetic encoding
+#    would repeat the mistake, so this runs the two real code pages and asserts on a payload built
+#    to be lethal to both: U+2014 (absent from cp949) and U+AC00 (absent from cp1252).
+echo
+echo "── verdict channel encoding ──"
+# built from escapes on purpose: a literal Hangul sample would be a personalization leak in an
+# English-only repo and setup/pre-publish-check.sh rejects it, correctly. U+2014 em-dash (absent
+# from cp949) and U+AC00 (absent from cp1252) — one character for each machine's code page.
+NONASCII="$(printf '\u2014 \uac00')"
+ENCLINE="- **Sealed-condition cross-check**: converged ${NONASCII} design settled, non-ascii included"
+TAB_="$(printf '\t')"
+for CP in ascii cp949 cp1252; do
+  EOUT="$( printf '%s' "$ENCLINE" | env -u PYTHONUTF8 PYTHONIOENCODING="$CP" \
+           $PY "$BIN/substance_check.py" --label 'Sealed-condition cross-check' 2>/dev/null )"
+  if [ -n "$EOUT" ] && [ "${EOUT%%"$TAB_"*}" = "OK" ]; then
+    ok "[ENC-01/$CP] a non-ASCII answer still returns its verdict"
+  else bad "[ENC-01/$CP] verdict channel produced [$EOUT]"; fi
+  # 🔴 surviving is not enough — the answer must come back INTACT. Pinning the stream with
+  #    errors="replace" would keep the code alive and hand back an answer full of `?`: the gate
+  #    would then judge, report, and quote mangled evidence. Writing UTF-8 bytes to stdout.buffer
+  #    sidesteps the console code page entirely, so this asserts the characters are still there.
+  if printf '%s' "${EOUT#*"$TAB_"}" | grep -qF "$NONASCII"; then
+    ok "[ENC-02/$CP] the answer round-trips intact, not replaced with '?'"
+  else bad "[ENC-02/$CP] answer came back mangled: [${EOUT#*"$TAB_"}]"; fi
+  # and the checker's own positive control has to run through that same channel, or it vouches for
+  # nothing — it scored 27/27 on the machine where every real call carrying an em-dash was dying.
+  ESELF="$( env -u PYTHONUTF8 PYTHONIOENCODING="$CP" $PY "$BIN/substance_check.py" --selftest 2>&1 )"
+  if printf '%s' "$ESELF" | grep -q 'selftest: [0-9]*/[0-9]*'; then
+    ok "[ENC-03/$CP] the checker's positive control passes through the channel it vouches for"
+  else bad "[ENC-03/$CP] selftest did not survive: $(printf '%s' "$ESELF" | tail -1)"; fi
+done
 
 echo
 if [ "$CHECKS" -eq 0 ]; then
