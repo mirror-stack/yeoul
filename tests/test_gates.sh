@@ -413,14 +413,30 @@ if ( PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; P="$(yeoul_pybin)"; $P -c 'raise S
   ok "[PY-02] falls through to a working interpreter under another name"
 else bad "[PY-02] did not find the working interpreter that was on PATH"; fi
 
-# and when nothing runs, it must stop the run — not skip the step and let the skip read as a pass
-rm -f "$STUBD/python"; for n in python3 python py; do mkstub "$n"; done
-( PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; yeoul_pybin >/dev/null 2>&1 ) 
-if [ $? -ne 0 ]; then ok "[PY-03] no working interpreter => resolution fails"; else bad "[PY-03] claimed success with every candidate stubbed"; fi
-OUT="$( PATH="$STUBD:$PATH" bash "$BIN/status" 2>&1 )"; RC=$?
-if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -q 'no working Python interpreter'; then
-  ok "[PY-03] a script stops with a named cause (exit $RC), it does not skip silently"
-else bad "[PY-03] script exited $RC without naming the missing interpreter"; fi
+# and when nothing runs, it must stop the run — not skip the step and let the skip read as a pass.
+# 🔴 This block must first ESTABLISH "nothing runs", and then check that it was established. The
+#    earlier version asserted it: it stubbed python3/python/py and assumed that covered every
+#    candidate. It did not — $YEOUL_PYTHON is tried first and is not a PATH name at all, and on
+#    Windows the .exe forms are separate files. With an interpreter still reachable the resolver
+#    correctly succeeded and these two checks failed, blaming the product for the test's own gap.
+#    (Reproduced by running the suite with YEOUL_PYTHON set: 50/52, the same score reported from a
+#    Windows machine.) A precondition that is assumed instead of measured is the defect this whole
+#    suite is about, so it is now measured — and if it cannot be met the checks report inconclusive
+#    rather than passing or failing, because neither verdict would mean anything.
+rm -f "$STUBD/python"
+for n in python3 python py python3.exe python.exe py.exe; do mkstub "$n"; done
+if ( unset YEOUL_PYTHON; PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; yeoul_pybin >/dev/null 2>&1 ); then
+  CHECKS=$((CHECKS+2))
+  echo "  ? [PY-03] could not establish 'no interpreter reachable' — an interpreter survived the"
+  echo "        stubbing, so neither PY-03 check is evidence here. Not counted as a pass."
+  FAIL=1
+else
+  ok "[PY-03] no working interpreter => resolution fails"
+  OUT="$( unset YEOUL_PYTHON; PATH="$STUBD:$PATH" bash "$BIN/status" 2>&1 )"; RC=$?
+  if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -q 'no working Python interpreter'; then
+    ok "[PY-03] a script stops with a named cause (exit $RC), it does not skip silently"
+  else bad "[PY-03] script exited $RC without naming the missing interpreter"; fi
+fi
 rm -rf "$STUBD"
 
 echo
