@@ -394,7 +394,13 @@ if ( PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; [ "$(yeoul_pybin)" != "python3" ] 
 else bad "[PY-01] the stub was accepted as an interpreter"; fi
 
 # the second Windows machine had a perfectly good `python` on PATH the whole time
-REALPY="$(command -v python3 || command -v python)"
+# 🔴 find the real interpreter by RUNNING candidates. `command -v python3` here would hand back
+#    the stub when this suite is itself run under a stubbed PATH — using a name lookup to locate a
+#    real interpreter, inside the test for that exact bug.
+REALPY=""
+for c in "$(command -v python3)" "$(command -v python)" /usr/bin/python3 /usr/bin/python; do
+  [ -n "$c" ] && "$c" -c 'raise SystemExit(0)' >/dev/null 2>&1 && { REALPY="$c"; break; }
+done
 ln -sf "$REALPY" "$STUBD/python" 2>/dev/null
 if ( PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; P="$(yeoul_pybin)"; $P -c 'raise SystemExit(0)' ) 2>/dev/null; then
   ok "[PY-02] falls through to a working interpreter under another name"
