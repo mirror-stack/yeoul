@@ -385,6 +385,9 @@ else ok "[YL-09] seal message names the tested condition (\`am\` on PATH), not a
 # the absence of a measurement. Reproduced here with a stub, so this is testable off Windows.
 echo
 echo "── interpreter resolution ──"
+# Say which interpreter this run actually used. Without it a failure report from another machine
+# cannot distinguish "resolved a different interpreter" from "the check itself is broken there".
+echo "  ℹ resolved: $PY ($($PY -c 'import sys,platform; print(platform.python_version(), sys.platform)' 2>&1 | head -1))"
 STUBD="$WS/stub"; mkdir -p "$STUBD"
 mkstub() { printf '#!/usr/bin/env bash\necho "Python" >&2\nexit 49\n' > "$STUBD/$1"; chmod +x "$STUBD/$1"; }
 
@@ -401,7 +404,11 @@ REALPY=""
 for c in "$(command -v python3)" "$(command -v python)" /usr/bin/python3 /usr/bin/python; do
   [ -n "$c" ] && "$c" -c 'raise SystemExit(0)' >/dev/null 2>&1 && { REALPY="$c"; break; }
 done
-ln -sf "$REALPY" "$STUBD/python" 2>/dev/null
+# 🔴 a wrapper, not a symlink. `ln -s` is the only symlink this suite would use, and MSYS/Git Bash
+#    copies the target instead of linking unless winsymlinks is set — copying a Windows python.exe
+#    produces a broken standalone, so this check would fail for a reason that has nothing to do with
+#    what it is testing.
+printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$REALPY" > "$STUBD/python"; chmod +x "$STUBD/python"
 if ( PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; P="$(yeoul_pybin)"; $P -c 'raise SystemExit(0)' ) 2>/dev/null; then
   ok "[PY-02] falls through to a working interpreter under another name"
 else bad "[PY-02] did not find the working interpreter that was on PATH"; fi
