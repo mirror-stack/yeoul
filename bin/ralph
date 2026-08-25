@@ -11,6 +11,10 @@ set -euo pipefail
 #   ⚠️ Loop-forbidden (belongs to the human/session): measurement runs, sealing, PASS/KILL judgment.
 #      Items without a `verify:` command are refused (exit 3).
 
+# Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_pybin.sh"
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECTS_DIR="${YEOUL_PROJECTS:-./projects}"
 
@@ -76,8 +80,8 @@ $(cat "$TODO")
   "$SCRIPT_DIR/verify-gate" "$TODO" --revert --require-verify || echo "  ⚠ harness reverted a checked item (verify failed on re-run, or its verify clause was missing)"
 
   TOK=0
-  if command -v python3 >/dev/null 2>&1; then
-    TOK=$(python3 -c "
+  if [ -n "$PY" ]; then
+    TOK=$($PY -c "
 import json,sys
 try:
     d=json.load(open('$OUT')); u=d.get('usage',{})

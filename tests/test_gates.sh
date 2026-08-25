@@ -6,6 +6,10 @@ set -uo pipefail
 #     2. ralph verify-gate: unchecked item without `verify:` is refused (3)
 #   Exit 0 = all gates behaved as specified.
 
+# Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"/_pybin.sh
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"
 WS="$(mktemp -d)"; trap 'rm -rf "$WS"' EXIT
 cd "$WS"; export YEOUL_PROJECTS="$WS/projects"
@@ -189,7 +193,7 @@ EARC="$(ls -d "$WS"/arcs/*_enc)"
 ESUM="$(ls "$EARC"/_SUMMARY_*.md)"
 sedi 's/- (fill in)/- concrete conclusion here/' "$ESUM"
 sedi 's/(unfilled)/yes/g' "$ESUM"
-python3 - "$ESUM" <<'PYDAMAGE'
+$PY - "$ESUM" <<'PYDAMAGE'
 import sys
 p = sys.argv[1]
 out = []
@@ -222,8 +226,8 @@ esac
 # 28 of 28 evasive answers sealed. These assertions pin the class in BOTH directions — a
 # repair that only tightened would pass the top half and quietly reject real answers.
 SUBSTANCE="$BIN/substance_check.py"
-python3 "$SUBSTANCE" --selftest >/dev/null 2>&1; assert "substance checker passes its own positive control" 0 $?
-echo "    $(python3 "$SUBSTANCE" --selftest 2>&1 | tail -1)"   # 🔴 print the denominator, not just green
+$PY "$SUBSTANCE" --selftest >/dev/null 2>&1; assert "substance checker passes its own positive control" 0 $?
+echo "    $($PY "$SUBSTANCE" --selftest 2>&1 | tail -1)"   # 🔴 print the denominator, not just green
 
 subst_case() { # subst_case <desc> <answer> <expected-exit>
   "$BIN/arc-open" sc --topic="substance" --arcs-dir="$WS/arcs" >/dev/null 2>&1
@@ -232,7 +236,7 @@ subst_case() { # subst_case <desc> <answer> <expected-exit>
   local S; S="$(ls "$A"/_SUMMARY_*.md)"
   sedi 's/- (fill in)/- concrete conclusion here/' "$S"
   # anchor/catalog have their own branches; drive the general branch with the candidate
-  python3 - "$S" "$2" <<'PYFILL'
+  $PY - "$S" "$2" <<'PYFILL'
 import sys, re
 p, ans = sys.argv[1], sys.argv[2]
 out = []
@@ -267,7 +271,7 @@ subst_case "genuine answer carrying a deferral CLAUSE still seals" \
 # A documented fallback is untested code. Sabotage the checker so it can never say no, then
 # assert the gate REFUSES TO INTERPRET (exit 6) instead of sealing an evasive answer.
 SBIN="$(mktemp -d)"; cp "$BIN"/* "$SBIN/" 2>/dev/null
-python3 - "$SBIN/substance_check.py" <<'PYSAB'
+$PY - "$SBIN/substance_check.py" <<'PYSAB'
 import sys
 p = sys.argv[1]; s = open(p, encoding="utf-8").read()
 i = s.index("def judge(label, ans):")
@@ -275,7 +279,7 @@ s = s[:i] + 'def judge(label, ans):\n    return "OK", ans\n\ndef _judge_disabled
 open(p, "w", encoding="utf-8").write(s)
 PYSAB
 # the sabotage must actually have landed, or every assertion below passes vacuously
-python3 "$SBIN/substance_check.py" --selftest >/dev/null 2>&1 \
+$PY "$SBIN/substance_check.py" --selftest >/dev/null 2>&1 \
   && { echo "  ✗ sabotage did NOT land — the checks below would pass for the wrong reason"; FAIL=1; } \
   || echo "  ✓ sabotage landed (checker can no longer fail a planted violation)"
 "$SBIN/arc-open" sb --topic="sabotage" --arcs-dir="$WS/arcs" >/dev/null 2>&1
@@ -373,6 +377,38 @@ if "$BIN/loop-guard" "$LG2" status 2>/dev/null | grep -q 'unmeasured='; then
 if grep -rq 'install mirror-stack for sealing' "$BIN"/arc-close "$BIN"/close-project 2>/dev/null; then
   bad "[YL-09] seal message still blames installation for a PATH test"
 else ok "[YL-09] seal message names the tested condition (\`am\` on PATH), not an assumed cause"; fi
+
+# ── interpreter resolution: a name that resolves is not an interpreter that runs ──────────────
+# Windows ships a Microsoft Store stub that answers to `python3` and exits 49 without running
+# anything. `command -v python3` is satisfied by it, so the whole gate suite scored 34/48 on two
+# Windows machines — printed as `✗ expected 0, got 49`, which reads like a verdict and is actually
+# the absence of a measurement. Reproduced here with a stub, so this is testable off Windows.
+echo
+echo "── interpreter resolution ──"
+STUBD="$WS/stub"; mkdir -p "$STUBD"
+mkstub() { printf '#!/usr/bin/env bash\necho "Python" >&2\nexit 49\n' > "$STUBD/$1"; chmod +x "$STUBD/$1"; }
+
+mkstub python3
+if ( PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; [ "$(yeoul_pybin)" != "python3" ] ) 2>/dev/null; then
+  ok "[PY-01] a stub that answers to the name is rejected (resolved by running, not by lookup)"
+else bad "[PY-01] the stub was accepted as an interpreter"; fi
+
+# the second Windows machine had a perfectly good `python` on PATH the whole time
+REALPY="$(command -v python3 || command -v python)"
+ln -sf "$REALPY" "$STUBD/python" 2>/dev/null
+if ( PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; P="$(yeoul_pybin)"; $P -c 'raise SystemExit(0)' ) 2>/dev/null; then
+  ok "[PY-02] falls through to a working interpreter under another name"
+else bad "[PY-02] did not find the working interpreter that was on PATH"; fi
+
+# and when nothing runs, it must stop the run — not skip the step and let the skip read as a pass
+rm -f "$STUBD/python"; for n in python3 python py; do mkstub "$n"; done
+( PATH="$STUBD:$PATH"; . "$BIN/_pybin.sh"; yeoul_pybin >/dev/null 2>&1 ) 
+if [ $? -ne 0 ]; then ok "[PY-03] no working interpreter => resolution fails"; else bad "[PY-03] claimed success with every candidate stubbed"; fi
+OUT="$( PATH="$STUBD:$PATH" bash "$BIN/status" 2>&1 )"; RC=$?
+if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -q 'no working Python interpreter'; then
+  ok "[PY-03] a script stops with a named cause (exit $RC), it does not skip silently"
+else bad "[PY-03] script exited $RC without naming the missing interpreter"; fi
+rm -rf "$STUBD"
 
 echo
 if [ "$CHECKS" -eq 0 ]; then

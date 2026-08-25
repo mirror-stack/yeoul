@@ -8,6 +8,10 @@ set -euo pipefail
 #
 # Typical flow: seal the kill-condition with mirror-stack (mm_preregister) → arc-prereg <arc> <claim_id>.
 
+# Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_pybin.sh"
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+
 ARC_DIR="${1:-}"; CLAIM="${2:-}"; LEDGER="${3:-${YEOUL_LEDGER:-}}"
 if [ -z "$ARC_DIR" ] || [ -z "$CLAIM" ]; then
   echo "usage: arc-prereg <arc_dir> <claim_id> [ledger]   (ledger defaults to \$YEOUL_LEDGER)"; exit 1
@@ -16,7 +20,7 @@ fi
 [ -n "$LEDGER" ] || { echo "no ledger given (pass one or set \$YEOUL_LEDGER)"; exit 1; }
 [ -f "$LEDGER" ] || { echo "ledger not found: $LEDGER"; exit 1; }
 
-KILL="$(python3 - "$LEDGER" "$CLAIM" 2>/dev/null <<'PY'
+KILL="$($PY - "$LEDGER" "$CLAIM" 2>/dev/null <<'PY'
 import json, sys
 led, cid = sys.argv[1], sys.argv[2]
 for line in open(led, encoding='utf-8', errors='ignore'):

@@ -4,6 +4,10 @@ set -euo pipefail
 #   One line per active project (path without _archive): name · latest arc verdict · dev TODO progress.
 #   Projects root ./projects (override YEOUL_PROJECTS).
 
+# Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_pybin.sh"
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+
 PROJECTS_DIR="${YEOUL_PROJECTS:-./projects}"
 MD=0
 for a in "$@"; do case "$a" in --md) MD=1 ;; esac; done
@@ -11,9 +15,9 @@ for a in "$@"; do case "$a" in --md) MD=1 ;; esac; done
 [ -d "$PROJECTS_DIR" ] || { echo "no projects dir: $PROJECTS_DIR"; exit 0; }
 
 # truncate to 100 chars on a codepoint boundary (never splits a multibyte char).
-# python3 is already a project dependency; if absent, degrade to no truncation (never mojibake).
+# $PY is already a project dependency; if absent, degrade to no truncation (never mojibake).
 _trunc100() {
-  python3 -c 'import sys; s=sys.stdin.read().strip(); print(s[:100]+("…" if len(s)>100 else ""))' 2>/dev/null || cat
+  $PY -c 'import sys; s=sys.stdin.read().strip(); print(s[:100]+("…" if len(s)>100 else ""))' 2>/dev/null || cat
 }
 verdict_of() {
   local proj="$1"

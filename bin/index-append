@@ -6,6 +6,10 @@ set -uo pipefail
 #   (never rots; not a new store). Index path = $YEOUL_INDEX, default <repo>/KNOWLEDGE_INDEX.md.
 #   Best-effort: a failure here never affects the close.
 
+# Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_pybin.sh"
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARC_DIR="${1:-}"; [ -n "$ARC_DIR" ] && [ -d "$ARC_DIR" ] || exit 0
 ARC="$(basename "$ARC_DIR")"
@@ -14,7 +18,7 @@ INDEX="${YEOUL_INDEX:-$SCRIPT_DIR/../KNOWLEDGE_INDEX.md}"
 
 CLAIM="-"; [ -f "$ARC_DIR/.prereg" ] && CLAIM="$(sed -n '1p' "$ARC_DIR/.prereg")"
 
-read -r DATE STOP < <(python3 - "$SUM" <<'PY'
+read -r DATE STOP < <($PY - "$SUM" <<'PY'
 import re,sys
 t=open(sys.argv[1],encoding='utf-8',errors='ignore').read()
 def g(p,d='-'):
@@ -22,7 +26,7 @@ def g(p,d='-'):
 print(g(r'\*\*Closed\*\*:\s*([0-9-]+)'), g(r'\*\*stop_reason\*\*:\s*(\S+)'))
 PY
 )
-VERDICT="$(python3 - "$SUM" <<'PY'
+VERDICT="$($PY - "$SUM" <<'PY'
 import re,sys
 t=open(sys.argv[1],encoding='utf-8',errors='ignore').read()
 m=re.search(r'\*\*Verdict\*\*:\s*(.+)',t); print((m.group(1).strip() if m else '-')[:160])
@@ -31,7 +35,7 @@ PY
 # The old regex assumed the first item was a `- ` bullet, so a numbered list (`1. …`) matched
 # nothing → '-'. The close still succeeded and the log still printed "appended" — the failure
 # was invisible. Take the section's first substantive line and strip only the list marker.
-CLOSED="$(python3 - "$SUM" <<'PY'
+CLOSED="$($PY - "$SUM" <<'PY'
 import re,sys
 t=open(sys.argv[1],encoding='utf-8',errors='ignore').read()
 m=re.search(r'##\s*What was closed[^\n]*\n(.*?)(?=\n##\s|\Z)', t, re.S)
