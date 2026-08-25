@@ -387,7 +387,10 @@ echo
 echo "── interpreter resolution ──"
 # Say which interpreter this run actually used. Without it a failure report from another machine
 # cannot distinguish "resolved a different interpreter" from "the check itself is broken there".
-echo "  ℹ resolved: $PY ($($PY -c 'import sys,platform; print(platform.python_version(), sys.platform)' 2>&1 | head -1))"
+# 🔴 print the PATH too, not just the name and version. Two machines reported different results
+#    with the same name and the same version — the interpreter each had resolved was a *different
+#    venv* that happened to sit ahead on PATH, and the name+version line could not show that.
+echo "  ℹ resolved: $PY -> $($PY -c 'import sys,platform; print(sys.executable, platform.python_version(), sys.platform)' 2>&1 | head -1)"
 STUBD="$WS/stub"; mkdir -p "$STUBD"
 mkstub() { printf '#!/usr/bin/env bash\necho "Python" >&2\nexit 49\n' > "$STUBD/$1"; chmod +x "$STUBD/$1"; }
 
