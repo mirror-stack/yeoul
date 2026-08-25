@@ -456,7 +456,10 @@ rm -rf "$STUBD"
 #    to be lethal to both: U+2014 (absent from cp949) and U+AC00 (absent from cp1252).
 echo
 echo "── verdict channel encoding ──"
-NONASCII="$(printf '— 가')"
+# built from escapes on purpose: a literal Hangul sample would be a personalization leak in an
+# English-only repo and setup/pre-publish-check.sh rejects it, correctly. U+2014 em-dash (absent
+# from cp949) and U+AC00 (absent from cp1252) — one character for each machine's code page.
+NONASCII="$(printf '\u2014 \uac00')"
 ENCLINE="- **Sealed-condition cross-check**: converged ${NONASCII} design settled, non-ascii included"
 TAB_="$(printf '\t')"
 for CP in ascii cp949 cp1252; do
