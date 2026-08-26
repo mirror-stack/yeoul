@@ -88,6 +88,24 @@ SEAL_GATE="no"; [ -n "$SEAL_KILL" ] && SEAL_GATE="yes"
 # A .prereg that no longer resolves is a silent way around the gate. Never pass it in silence.
 SEAL_BROKEN="no"; [ -f "$PREREG" ] && [ -z "$SEAL_KILL" ] && SEAL_BROKEN="yes"
 
+# ★2026-08-26 — the second key must be RECORDED, not only enforced.
+# Measured before this existed: a KILL close wrote "⚠️ UNSEALED …" into the _SUMMARY, but a GO
+# close wrote nothing at all about the seal — `grep -c 'UNSEALED\|prereg\|seal'` = 0. The notice
+# was inside emit_kill_defense(), so it only existed on the path that says "this failed". GO is
+# the label that OPENS the next step, so the silence was on exactly the wrong side: a half-installed
+# environment (yeoul, no mirror-stack) closed arcs that read identically to fully-locked ones.
+# This line is emitted for every close and is harness-owned — the 2nd run requires it verbatim,
+# so "closed with one key" cannot be quietly edited into "closed with two".
+seal_state_line() {
+  if [ -n "$SEAL_KILL" ]; then
+    printf -- '- **Second key (pre-registration)**: sealed — claim `%s` in %s\n' "$SEAL_CLAIM" "$SEAL_LEDGER"
+  elif [ "$SEAL_BROKEN" = "yes" ]; then
+    printf -- '- **Second key (pre-registration)**: BROKEN — `.prereg` names claim `%s` but it could not be read from %s\n' "$SEAL_CLAIM" "$SEAL_LEDGER"
+  else
+    printf -- '- **Second key (pre-registration)**: none — closed with one key only (no seal linked; attestation-only)\n'
+  fi
+}
+
 emit_kill_defense() { # KILL-defense section: sealed → inject verbatim condition; unsealed → attestation-only
   echo ""
   echo "## 🛡️ KILL-defense check (anti-premature-closure — all must be filled to seal)"
@@ -172,7 +190,7 @@ if [ ! -f "$SUMMARY" ]; then
 - **Closed**: ${TODAY} (${TS_ISO})
 - **stop_reason**: ${STOP}   (falsified / no-progress / converged)
 - **Verdict**: ${VERDICT}
-
+$(seal_state_line)
 ## What was closed (the conclusion)
 - (fill in)
 
@@ -248,6 +266,23 @@ elif [ "$SEAL_GATE" = "yes" ]; then
   check_answers 'Sealed-condition cross-check'
 fi
 
+# ⑤ LAST, on purpose. This runs after the blank / broken-anchor / KILL-defense / cross-check
+#    gates: a summary mangled by an encoding fault fails those with a diagnosis that names the
+#    real cause, and would fail here too with a mismatch that names the wrong one. The most
+#    specific gate must speak first.
+#    The seal-state line is harness-owned. If it drifted from reality — most often because a
+#    seal was linked AFTER the draft was written — the record would understate or overstate which
+#    keys were turned. Refuse and show both lines rather than sealing a summary that misreports it.
+# NB: `--` is load-bearing. The pattern starts with "- ", so without it grep parses the line as
+#     options and exits non-zero — which this gate would have read as "the record is wrong".
+if ! grep -qxF -- "$(seal_state_line)" "$SUMMARY"; then
+  echo "⛔ seal refused: the second-key line in _SUMMARY does not match this arc's actual seal state."
+  echo "    in the file : $(grep -m1 -F -- '**Second key (pre-registration)**' "$SUMMARY" || echo '(the line is missing)')"
+  echo "    should read : $(seal_state_line)"
+  echo "    Replace that line with the second one and re-run. (This line is written by the harness, not typed.)"
+  exit 8
+fi
+
 echo "ARC_CLOSED ${TODAY} stop=${STOP} — ${VERDICT}" >> "$ARC_DIR/STATE.md"
 
 mkdir -p "$ARCHIVE_DIR"
@@ -281,4 +316,12 @@ echo "  arc        : $ARC"
 echo "  stop_reason: $STOP"
 echo "  verdict    : $VERDICT"
 echo "  seal       : $SEAL_MSG"
-echo "  archived   : $ARCHIVE_DIR/$ARC/  (gates passed — blanks & KILL-defense checked)"
+# 🔴 Name the gates that RAN. This line used to be a fixed string ending "blanks & KILL-defense
+#    checked" on every successful close — including GO closes, where emit_kill_defense() never
+#    produced a section and no KILL-defense was checked at all. A banner that claims a check the
+#    code skipped is the same defect this repo keeps finding in its own signals.
+GATES="blanks"
+[ "$IS_KILL" = "yes" ] && GATES="$GATES + KILL-defense"
+[ "$SEAL_GATE" = "yes" ] && GATES="$GATES + sealed-condition cross-check"
+GATES="$GATES + second-key line"
+echo "  archived   : $ARCHIVE_DIR/$ARC/  (gates run: $GATES)"

@@ -6,6 +6,16 @@ set -euo pipefail
 #   agent-typed field — closing the "post-hoc widening" hole structurally (the agent isn't its author).
 #   ledger defaults to $YEOUL_LEDGER. Verifies the claim's kill_condition is present before linking.
 #
+#   ★ SECOND KEY (2026-08-26): linking is refused unless the arc's spec actually carries a design —
+#   Goal / Success condition / Kill-condition / Constraints must each hold substance. Before this,
+#   a spec with every field blank took a seal without a word of warning (measured: exit 0, no
+#   output), so the "dual key" had a lock on one side only.
+#
+#   🔴 The lock lives HERE and nowhere else, on purpose. This command is only ever called by
+#   someone who already has mirror-stack, so a yeoul-only user is not blocked by it — every other
+#   yeoul command still runs with no ledger present (measured 2026-08-26: eight commands, rc=0).
+#   Putting the same refusal in arc-close would have made mirror-stack a hard install requirement.
+#
 # Typical flow: seal the kill-condition with mirror-stack (mm_preregister) → arc-prereg <arc> <claim_id>.
 
 # Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
@@ -33,6 +43,74 @@ for line in open(led, encoding='utf-8', errors='ignore'):
 PY
 )"
 [ -n "$KILL" ] || { echo "❌ claim '$CLAIM' with a kill_condition not found in $LEDGER"; exit 1; }
+
+# ── second key: the arc's spec must carry a design before a seal may attach to it ──
+# The spec's four load-bearing fields, by the label each is written with.
+SPEC_FIELDS="Goal|Success condition|Kill-condition|Constraints"
+SPEC="$ARC_DIR/0001_spec.md"
+SUBSTANCE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/substance_check.py"
+
+if [ ! -f "$SPEC" ]; then
+  echo "⛔ prereg refused: no spec at $SPEC — there is no design for this seal to be the second key of."
+  exit 6
+fi
+
+# ★ The judge proves it can still say no BEFORE it is used to say yes. Same rule arc-close follows:
+#   an instrument is not trusted because it printed green, but because it just separated planted
+#   violations from planted genuine answers.
+if ! st="$($PY "$SUBSTANCE" --selftest 2>&1)"; then
+  echo "⛔ prereg refused: the substance checker failed its own positive control — the instrument is broken, so the spec is not judged."
+  printf '%s\n' "$st" | sed 's/^/    /'
+  exit 6
+fi
+echo "   🧪 substance-checker positive control: ${st##*: }"
+
+# Two spec shapes exist in this repo: `- **Goal**:` (arc-open) and
+# `- **Goal** — what do you want to learn / build (observable):` (templates/spec.md).
+# substance_check's extractor only strips the first shape, so feeding it a template line verbatim
+# would hand the PROMPT to the judge as if it were the ANSWER — a gate that passes on a blank spec.
+# Normalise here instead of widening the shared extractor, which ten correct callers depend on:
+# take what follows the LAST colon on the line. On an unfilled line that is empty (the colon ends
+# the line); on a filled one it can at worst judge a suffix of the answer, which errs strict.
+TAB="$(printf '\t')"
+MISSING=""; CHECKED=0
+while IFS= read -r label; do
+  CHECKED=$((CHECKED + 1))
+  line="$(grep -m1 -F "**$label" "$SPEC" 2>/dev/null || true)"
+  if [ -z "$line" ]; then MISSING="$MISSING\n    - $label — no such field in the spec"; continue; fi
+  case "$line" in
+    *:*) value="${line##*:}" ;;
+    *)   value="" ;;
+  esac
+  # An unfilled field is unfilled — do not let the judge's TRIVIAL_VOCAB code name it something
+  # more specific than what was seen. The reason a person reads must match what actually happened.
+  if [ -z "$(printf '%s' "$value" | tr -d '[:space:]')" ]; then
+    MISSING="$MISSING\n    - $label — empty (nothing written after the label)"; continue
+  fi
+  # Fail closed: empty judge output means the checker could not run, which is not a pass.
+  vout="$(printf -- '- **%s**: %s' "$label" "$value" | $PY "$SUBSTANCE" --label "$label" 2>/dev/null || true)"
+  vcode="${vout%%"$TAB"*}"
+  [ "$vcode" = "OK" ] && continue
+  case "$vcode" in
+    ""|DECODE_FAILED) why="could not be judged (empty or undecodable)" ;;
+    TRIVIAL_VOCAB)    why="nothing but trivial vocabulary" ;;
+    DEFERRAL)         why="an honest non-answer (\"TODO\" / \"not decided\") — it cannot ground a seal" ;;
+    THIN_CONTENT|LOW_DIVERSITY|REPEATED_UNIT) why="too thin to carry a design decision" ;;
+    *)                why="rejected by the substance check ($vcode)" ;;
+  esac
+  MISSING="$MISSING\n    - $label — $why"
+done <<EOF
+$(printf '%s\n' "$SPEC_FIELDS" | tr '|' '\n')
+EOF
+
+if [ -n "$MISSING" ]; then
+  echo "⛔ prereg refused: the spec does not carry a design, so this seal would be the only key."
+  printf '%b\n' "$MISSING"
+  echo "    Fill those fields in $SPEC and re-run. (Checked $CHECKED of $CHECKED spec fields.)"
+  echo "    Nothing was written — no .prereg was created."
+  exit 7
+fi
+echo "   ✅ spec carries a design: $CHECKED/$CHECKED fields hold substance."
 
 printf '%s\n%s\n' "$CLAIM" "$LEDGER" > "$ARC_DIR/.prereg"
 echo "🔒 prereg linked: arc $(basename "$ARC_DIR") ← seal $CLAIM"

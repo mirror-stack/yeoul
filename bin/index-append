@@ -62,7 +62,11 @@ REL="${ARC_DIR#"$SCRIPT_DIR"/../}"
 {
   printf '## %s · `%s` · %s\n' "${DATE:--}" "${STOP:--}" "$ARC"
   printf -- '- **Verdict**: %s\n' "$VERDICT"
-  [ "$CLAIM" != "-" ] && printf -- '- **Sealed claim**: `%s`\n' "$CLAIM"
+  # 🔴 Always emit this row. It used to be printed only when a claim existed, so an unsealed close
+  #    produced an entry with the line simply absent — and the index header promises the column.
+  #    A reader could not tell "no seal" from "this row predates the field" or "the write failed".
+  if [ "$CLAIM" != "-" ]; then printf -- '- **Sealed claim**: `%s`\n' "$CLAIM"
+  else printf -- '- **Sealed claim**: none (closed with one key only)\n'; fi
   printf -- '- **Closed**: %s\n' "$CLOSED"
   printf -- '- source: %s\n\n' "$REL"
 } >> "$INDEX"
