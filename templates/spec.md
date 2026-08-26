@@ -11,7 +11,7 @@
   - `wedge` (a real new angle) · `footnote` (known idea, minor twist) · `none` (existing tools suffice → consider rejecting here).
   - 🚧 If `none`: STOP and confirm [reject / re-frame / proceed anyway]. If not "proceed", stop and record the rejection reason (saves the rest of the interview).
 - **Success condition** — what does "it worked" look like (observable):
-- **Kill-condition (falsifier)** — what does "no / wrong" look like? ★No falsifier = untestable.
+- **Kill-condition (falsifier)** — what does "no / wrong" look like? ★No falsifier = untestable:
 - **Constraints** — resources · substrate · time · out of scope:
 - **Roles (roster)** — which stances debate (default: analysis[red-team] · impl · repro):
 - **(optional) Pre-registration seal id** — seal the kill-condition before spending compute.

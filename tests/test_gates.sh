@@ -32,6 +32,31 @@ check() { # check <desc> <cmd...> — passes if the command succeeds
 # portable in-place edit (GNU + BSD/macOS)
 sedi() { sed "$1" "$2" > "$2.t" && mv "$2.t" "$2"; }
 
+fill_spec() { # fill_spec <spec.md> — write a real design into the four load-bearing fields
+  $PY - "$1" <<'PYEOF'
+import sys
+p = sys.argv[1]
+vals = {
+    'Goal': 'measure whether a seal can attach to an arc whose spec was never filled in',
+    'Success condition': 'a blank spec is refused and a filled spec links, both shown by running it',
+    'Kill-condition (falsifier)': 'a blank spec still links a seal, or a filled spec is refused',
+    'Constraints': 'shell only, no mirror-stack code touched, must run with no ledger present',
+}
+out = []
+for ln in open(p, encoding='utf-8'):
+    for k, v in vals.items():
+        # prefix match: the internal copy labels this field `**Kill-condition (falsifier)**`,
+        # and an exact match would silently leave it blank — then the gate's correct refusal
+        # reads as a test failure.
+        if ln.startswith('- **%s' % k):
+            ln = ln.rstrip('\n').rstrip() + ' ' + v + '\n'
+            break
+    out.append(ln)
+open(p, 'w', encoding='utf-8').write(''.join(out))
+PYEOF
+}
+
+
 # --- arc-close 2-phase KILL gate ---
 "$BIN/arc-open" g --topic="gate test" --arcs-dir="$WS/arcs" >/dev/null 2>&1
 ARC="$(ls -d "$WS"/arcs/*_g)"
@@ -59,6 +84,9 @@ LEDGER="$WS/ledger.jsonl"
 printf '%s\n' '{"claim_id":"c1","metric":"m","kill_condition":"effect size d < 0.2 over >= 3 seeds","kill_threshold":{}}' > "$LEDGER"
 "$BIN/arc-open" s --topic="sealed gate" --arcs-dir="$WS/arcs" >/dev/null 2>&1
 SARC="$(ls -d "$WS"/arcs/*_s)"
+# A seal may no longer attach to an arc with a blank spec (see the DUAL KEY block below),
+# so this setup fills the design first — the thing under test here is the seal link.
+fill_spec "$SARC/0001_spec.md"
 YEOUL_LEDGER="$LEDGER" "$BIN/arc-prereg" "$SARC" c1 >/dev/null 2>&1; assert "arc-prereg links a valid claim" 0 $?
 "$BIN/arc-close" "$SARC" "KILL — sealed" --stop=falsified >/dev/null 2>&1   # draft (injects verbatim)
 SSUM="$(ls "$SARC"/_SUMMARY_*.md)"
@@ -82,6 +110,7 @@ sedi 's/^- \*\*Catalog.*/- **Catalog cross-check**: none/' "$SSUM"
 # closed as a PASS with the pre-registered bar never mentioned. The label is agent-written; the seal is not.
 "$BIN/arc-open" pv --topic="sealed pass" --arcs-dir="$WS/arcs" >/dev/null 2>&1
 PARC="$(ls -d "$WS"/arcs/*_pv)"
+fill_spec "$PARC/0001_spec.md"
 YEOUL_LEDGER="$LEDGER" "$BIN/arc-prereg" "$PARC" c1 >/dev/null 2>&1
 "$BIN/arc-close" "$PARC" "converged — design settled" --stop=converged >/dev/null 2>&1   # draft
 PSUM="$(ls "$PARC"/_SUMMARY_*.md)"
@@ -482,6 +511,108 @@ for CP in ascii cp949 cp1252; do
     ok "[ENC-03/$CP] the checker's positive control passes through the channel it vouches for"
   else bad "[ENC-03/$CP] selftest did not survive: $(printf '%s' "$ESELF" | tail -1)"; fi
 done
+
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# DUAL KEY — the lock, and the guarantee that it does not become an install requirement.
+#
+# Measured 2026-08-26, before any of this existed:
+#   · `arc-prereg` attached a seal to a spec with EVERY field blank — exit 0, not a word printed.
+#   · A KILL close wrote "UNSEALED" into its _SUMMARY; a GO close wrote nothing about the seal at
+#     all (grep count 0). The notice lived inside the KILL branch, so the one label that OPENS the
+#     next step was the silent one.
+#   · The closing banner said "blanks & KILL-defense checked" on every close, as a fixed string,
+#     including closes where no KILL-defense section was ever produced.
+# ─────────────────────────────────────────────────────────────────────────────────────────
+DK="$WS/dk"; mkdir -p "$DK"
+printf '%s\n' '{"claim_id":"dk-1","kill_condition":"the dual-key gate lets a blank spec through"}' > "$DK/led.jsonl"
+
+# --- the lock: a blank spec may not take a seal ---
+"$BIN/arc-open" dkblank --arcs-dir="$DK/arcs" >/dev/null 2>&1
+DKB="$(ls -d "$DK"/arcs/*dkblank)"
+"$BIN/arc-prereg" "$DKB" dk-1 "$DK/led.jsonl" >/dev/null 2>&1
+assert "[DK-01] blank spec cannot take a seal" 7 $?
+if [ ! -f "$DKB/.prereg" ]; then ok "[DK-02] refusal wrote nothing (no .prereg left behind)"
+else bad "[DK-02] refused but a .prereg exists anyway"; fi
+
+# --- and the other direction: a gate that only ever refuses is not a gate ---
+"$BIN/arc-open" dkfull --arcs-dir="$DK/arcs" >/dev/null 2>&1
+DKF="$(ls -d "$DK"/arcs/*dkfull)"
+fill_spec "$DKF/0001_spec.md"
+"$BIN/arc-prereg" "$DKF" dk-1 "$DK/led.jsonl" >/dev/null 2>&1
+assert "[DK-03] a filled spec still links (the lock can say yes)" 0 $?
+
+# --- the declaring door: EVERY close records which keys were turned ---
+"$BIN/arc-open" dkgo --arcs-dir="$DK/arcs" >/dev/null 2>&1
+DKG="$(ls -d "$DK"/arcs/*dkgo)"
+"$BIN/arc-close" "$DKG" "GO — dual key test" >/dev/null 2>&1
+DKSUM="$(ls "$DKG"/_SUMMARY_*.md)"
+# 🔴 GO, not KILL. This is the path that used to say nothing.
+if grep -qF -- '**Second key (pre-registration)**: none' "$DKSUM"; then
+  ok "[DK-04] a GO close records that it closed with one key only"
+else bad "[DK-04] GO close is silent about the seal state again"; fi
+sedi 's/- (fill in)/- concrete conclusion here/' "$DKSUM"
+DKOUT="$("$BIN/arc-close" "$DKG" "GO — dual key test" 2>&1)"; assert "[DK-05] GO close still seals" 0 $?
+# the banner must name the gates that RAN — a GO close has no KILL-defense section to check
+if printf '%s' "$DKOUT" | grep -q 'gates run:' && ! printf '%s' "$DKOUT" | grep -q 'KILL-defense'; then
+  ok "[DK-06] the closing banner does not claim a KILL-defense check that never ran"
+else bad "[DK-06] banner still claims KILL-defense on a GO close"; fi
+if grep -qF -- '**Sealed claim**: none' "${YEOUL_INDEX:-$WS/KNOWLEDGE_INDEX.md}" 2>/dev/null; then
+  ok "[DK-07] the knowledge index says 'none' instead of dropping the promised column"
+else bad "[DK-07] index row omits the Sealed claim column again"; fi
+
+# --- the record is harness-owned: it cannot be edited into a nicer story ---
+"$BIN/arc-open" dktamper --arcs-dir="$DK/arcs" >/dev/null 2>&1
+DKT="$(ls -d "$DK"/arcs/*dktamper)"
+fill_spec "$DKT/0001_spec.md"
+"$BIN/arc-prereg" "$DKT" dk-1 "$DK/led.jsonl" >/dev/null 2>&1
+"$BIN/arc-close" "$DKT" "GO — tamper test" >/dev/null 2>&1
+DKTSUM="$(ls "$DKT"/_SUMMARY_*.md)"
+sedi 's/^- \*\*Second key (pre-registration)\*\*: sealed.*/- **Second key (pre-registration)**: none — closed with one key only (no seal linked; attestation-only)/' "$DKTSUM"
+sedi 's/- (fill in)/- concrete conclusion here/' "$DKTSUM"
+sedi 's/^\(- \*\*Result triggers the sealed condition?\*\*\): (unfilled).*/\1: no. The run produced four rows and the sealed condition requires zero, so it is not met./' "$DKTSUM"
+"$BIN/arc-close" "$DKT" "GO — tamper test" >/dev/null 2>&1
+assert "[DK-08] a hand-edited second-key line is refused" 8 $?
+
+# --- the OTHER spec shape: templates/spec.md, where the label is followed by a prompt ---
+# Two shapes exist. arc-open writes `- **Goal**:`; templates/spec.md writes
+# `- **Goal** — what do you want to learn / build (observable):`. substance_check's extractor only
+# strips the first, so handing it a template line verbatim would give the JUDGE THE PROMPT as if it
+# were the answer — a lock that opens on a spec nobody filled. DK-10 is that vacuity check.
+"$BIN/arc-open" dktpl --arcs-dir="$DK/arcs" >/dev/null 2>&1
+DKP="$(ls -d "$DK"/arcs/*dktpl)"
+cp "$(dirname "$BIN")/templates/spec.md" "$DKP/0001_spec.md"
+"$BIN/arc-prereg" "$DKP" dk-1 "$DK/led.jsonl" >/dev/null 2>&1
+assert "[DK-10] an unfilled template spec is refused (the prompt is not read as the answer)" 7 $?
+# …and the template must have somewhere to write each answer. Its Kill-condition line ended in
+# "untestable." with no colon, so there was no slot at all for the one field the seal is about.
+fill_spec "$DKP/0001_spec.md"
+"$BIN/arc-prereg" "$DKP" dk-1 "$DK/led.jsonl" >/dev/null 2>&1
+assert "[DK-11] a filled template spec links (every field has a slot to write in)" 0 $?
+
+# --- 🔴 the guarantee: none of this may turn mirror-stack into an install requirement ---
+# `arc-prereg` is the ONLY command that needs a ledger, and it is only ever called by someone who
+# already has one. Everything else must still run with no mirror-stack anywhere on PATH.
+DKN="$WS/nomirror"; mkdir -p "$DKN"
+NOMIRROR_FAIL=""
+run_bare() { # run_bare <name> <cmd...>
+  local n="$1"; shift
+  env PATH=/usr/bin:/bin YEOUL_INDEX="$DKN/index.md" YEOUL_PROJECTS="$DKN/projects" "$@" >/dev/null 2>&1 \
+    || NOMIRROR_FAIL="$NOMIRROR_FAIL $n"
+}
+run_bare yeoul-new "$BIN/yeoul-new" probe
+run_bare arc-open "$BIN/arc-open" probe --arcs-dir="$DKN/arcs"
+NB="$(ls -d "$DKN"/arcs/*probe 2>/dev/null | head -1)"
+run_bare arc-list "$BIN/arc-list" --arcs-dir="$DKN/arcs"
+run_bare arc-roles "$BIN/arc-roles" "$NB"
+run_bare build-handoff "$BIN/build-handoff" probe
+run_bare verify-gate "$BIN/verify-gate" "$DKN/projects/probe/dev/TODO.md"
+run_bare loop-guard "$BIN/loop-guard" "$NB"
+run_bare arc-close-draft "$BIN/arc-close" "$NB" "GO — no mirror"
+[ -n "$NB" ] && sedi 's/- (fill in)/- concrete conclusion here/' "$(ls "$NB"/_SUMMARY_*.md)"
+run_bare arc-close-seal "$BIN/arc-close" "$NB" "GO — no mirror"
+if [ -z "$NOMIRROR_FAIL" ]; then
+  ok "[DK-09] with no mirror-stack on PATH, every other command still runs (9/9)"
+else bad "[DK-09] the dual key blocked a yeoul-only user:$NOMIRROR_FAIL"; fi
 
 echo
 if [ "$CHECKS" -eq 0 ]; then
