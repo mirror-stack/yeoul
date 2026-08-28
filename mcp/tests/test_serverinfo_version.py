@@ -26,6 +26,7 @@ check that stopped looking.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -39,7 +40,7 @@ FAIL = []
 RAN = []
 SKIPPED = []
 REASON = []
-EXPECTED_CHECKS = 6  # every check below, whether it runs or declares itself skipped
+EXPECTED_CHECKS = 8  # every check below, whether it runs or declares itself skipped
 
 
 def skip(desc, why):
@@ -147,6 +148,31 @@ def test_version_is_set_on_the_low_level_server():
           "%r != %r" % (server.mcp._mcp_server.version, OWN_VERSION))
 
 
+def test_the_two_version_strings_agree():
+    """The version is written in TWO files, and only one of them reaches `serverInfo`.
+
+    `yeoul_mcp/__init__.py` is what the server announces; `pyproject.toml` is what the *packaging*
+    records — what `pip` stores, what `importlib.metadata` returns, what a release is cut from.
+    Every check above compares the server against `__init__.py`, so the two could drift and this
+    file would stay green: measured 2026-08-28, setting pyproject to 9.9.9 alone kept it at 6/6.
+
+    That drift is the same defect this module exists to prevent, arriving through the packaging
+    door instead of the SDK one — the number a user sees would stop matching the number the server
+    speaks. Bumping a release means bumping both, so the check belongs here rather than in a
+    release checklist nobody runs.
+    """
+    toml = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    text = toml.read_text(encoding="utf-8")
+    m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
+    check("pyproject.toml declares a version", m is not None, "no top-level version = \"...\" found")
+    if m is None:
+        return
+    check("pyproject.toml and __init__.py carry the same version",
+          m.group(1) == OWN_VERSION,
+          "pyproject says %r, package says %r -- a release cut now would ship two different numbers"
+          % (m.group(1), OWN_VERSION))
+
+
 def test_unversioned_fastmcp_is_the_broken_shape():
     """Negative control: a FastMCP nobody patched must still show the defect.
 
@@ -164,6 +190,7 @@ def main():
     print("mcp serverInfo version contract tests")
     test_handshake_announces_own_version()
     test_version_is_set_on_the_low_level_server()
+    test_the_two_version_strings_agree()
     test_unversioned_fastmcp_is_the_broken_shape()
     # Print what was counted. A run that collected zero checks also prints "0 failed".
     if not RAN:
