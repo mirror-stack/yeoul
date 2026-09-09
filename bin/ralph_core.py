@@ -6,6 +6,7 @@ import math
 import os
 import shlex
 import sys
+import uuid
 from pathlib import Path
 from verify_core import canonical, eligible, execute, verify, atomic_write
 
@@ -44,8 +45,9 @@ def main():
         if pending(todo.read_text(encoding='utf-8')) == 0:
             print('RALPH_DONE: existing checked items re-verified')
             return 0
-        log = todo.parent / 'ralph_log'
-        log.mkdir(exist_ok=True)
+        # Re-running a project must not overwrite previous round evidence.
+        log = todo.parent / 'ralph_log' / ('run-'+uuid.uuid4().hex)
+        log.mkdir(parents=True)
         used = no_progress = 0
         for round_no in range(1, a.max_rounds + 1):
             text = todo.read_text(encoding='utf-8')
@@ -84,6 +86,7 @@ def main():
             remaining = pending(todo.read_text(encoding='utf-8'))
             no_progress = no_progress + 1 if remaining >= before else 0
             print(f'round={round_no}/{a.max_rounds} tokens_used={used}/{a.token_budget} unchecked={remaining}')
+            print(f'log={log}')
             if used > a.token_budget:
                 print('STOP:budget — reported usage exceeded budget in this round')
                 return 2

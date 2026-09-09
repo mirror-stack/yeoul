@@ -11,7 +11,7 @@ your own judgment as a tool verdict.
 """
 from __future__ import annotations
 import os
-import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -46,13 +46,40 @@ BIN = Path(os.environ.get("YEOUL_BIN", _BUNDLED if _BUNDLED.is_dir()
                           else Path(__file__).resolve().parents[2] / "bin"))
 
 
+def bash_command(platform: str | None = None) -> str:
+    """Prefer Git Bash on Windows; System32/bash.exe is a WSL launcher, not this runtime."""
+    if os.environ.get('YEOUL_BASH'):
+        return os.environ['YEOUL_BASH']
+    if (platform or sys.platform) != 'win32':
+        return 'bash'
+    candidates = []
+    git = shutil.which('git')
+    if git:
+        candidates += [Path(git).parent.parent/'bin'/'bash.exe',
+                       Path(git).parent.parent/'usr'/'bin'/'bash.exe']
+    for key in ('ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA'):
+        if os.environ.get(key):
+            base = Path(os.environ[key])
+            candidates += [base/'Git'/'bin'/'bash.exe', base/'Programs'/'Git'/'bin'/'bash.exe']
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    found = shutil.which('bash')
+    if found and 'system32' not in found.lower() and 'windowsapps' not in found.lower():
+        return found
+    raise FileNotFoundError('Git Bash not found; install Git for Windows or set YEOUL_BASH to its bash.exe')
+
+
 def _run(script: str, *args: str, cwd: str | None = None, stdin: str | None = None) -> dict:
     """Run a bin/ script and return {exit_code, stdout, stderr}. Never raises on non-zero exit."""
     path = BIN / script
     if not path.exists():
         return {"exit_code": 127, "stdout": "", "stderr": f"script not found: {path}"}
-    interp = [os.environ.get("YEOUL_BASH", "bash")] if not script.endswith(".py") else [sys.executable]
-    cmd = [*interp, str(path), *args]
+    try:
+        interp = [bash_command()] if not script.endswith(".py") else [sys.executable]
+    except OSError as exc:
+        return {"exit_code": 127, "stdout": "", "stderr": str(exc)}
+    cmd = [*interp, path.as_posix(), *args]
     # 🔴 stdin: never inherit the parent's. On an MCP STDIO server the parent's stdin IS the
     #    protocol pipe, and a child that inherits it steals protocol bytes — the tool then
     #    hangs until timeout (field report, Windows/Codex, 2026-08-24).
@@ -60,6 +87,8 @@ def _run(script: str, *args: str, cwd: str | None = None, stdin: str | None = No
     #    non-UTF-8 default (CP949) the strip fails and a trivial "yes" arrives long enough to
     #    clear the substance checks. That is a gate-integrity bug, not a display bug.
     env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    if not script.endswith('.py'):
+        env['YEOUL_BASH'] = interp[0]
     try:
         with subprocess.Popen(
             cmd, cwd=cwd or os.getcwd(),

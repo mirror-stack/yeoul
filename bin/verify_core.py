@@ -73,7 +73,7 @@ def verify(todo, *, baseline=None, revert=False, require=False, timeout=120):
         item = ITEM.match(line.rstrip('\r\n'))
         command = VERIFY.search(line)
         if item and item[1] == 'x' and (command or require):
-            rc = execute(['bash', '-c', command[1]], timeout=timeout) if command else 1
+            rc = execute([os.environ.get('YEOUL_BASH', 'bash'), '-c', command[1]], timeout=timeout) if command else 1
             if rc:
                 print(f'verify failed (exit {rc}): {line.strip()}', file=sys.stderr)
                 failed = True

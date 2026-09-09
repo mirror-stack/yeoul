@@ -194,6 +194,19 @@ class Hardening(unittest.TestCase):
         self.assertEqual(self.call('arc-close', arc, 'GO audit').returncode, 9)
         self.assertTrue(arc.exists())
 
+    def test_defense_fields_outside_the_checked_section_do_not_count(self):
+        arc = self.opened()
+        self.call('arc-close', arc, 'KILL audit')
+        summary = next(arc.glob('_SUMMARY*'))
+        text = summary.read_text().replace('(fill in)', 'concrete conclusion')
+        moved = [line for line in text.splitlines() if '(unfilled)' in line]
+        summary.write_text('\n'.join(moved)+'\n'+'\n'.join(
+            line for line in text.splitlines() if '(unfilled)' not in line))
+        # Remove placeholders so failure must come from section membership, not blank scanning.
+        summary.write_text(summary.read_text().replace('(unfilled)', 'three independent runs agree'))
+        self.assertEqual(self.call('arc-close', arc, 'KILL audit').returncode, 5)
+        self.assertTrue(arc.exists())
+
     def fake_loop(self, body, *extra):
         dev = self.root/'projects'/'p'/'dev'
         dev.mkdir(parents=True)
@@ -213,7 +226,17 @@ class Hardening(unittest.TestCase):
     def test_ralph_one_round_means_one_invocation(self):
         result, todo = self.fake_loop('print(json.dumps({"usage":{"input_tokens":1,"output_tokens":1}}))\n', '--max-rounds=1')
         self.assertEqual(result.returncode, 2, result.stdout+result.stderr)
-        self.assertEqual(len(list((todo.parent/'ralph_log').glob('round_*.json'))), 1)
+        self.assertEqual(len(list((todo.parent/'ralph_log').rglob('round_*.json'))), 1)
+
+    def test_ralph_preserves_previous_run_logs(self):
+        result, todo = self.fake_loop('print(json.dumps({"usage":{"input_tokens":1,"output_tokens":1}}))\n', '--max-rounds=1')
+        self.assertEqual(result.returncode, 2)
+        original = list((todo.parent/'ralph_log').rglob('round_*.json'))
+        before = original[0].read_bytes()
+        result = self.call('ralph', 'p', '--agent-cmd=true', '--max-rounds=1')
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(original[0].read_bytes(), before)
+        self.assertEqual(len(list((todo.parent/'ralph_log').rglob('round_*.json'))), 2)
 
     def test_ralph_missing_usage_is_not_zero(self):
         result, _ = self.fake_loop('print("{}")\n')

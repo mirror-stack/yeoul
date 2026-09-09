@@ -9,13 +9,18 @@ from pathlib import Path
 
 
 def check_fields(text, kill, linked):
+    marker = (r'KILL-defense check|KILL \ubc29\uc5b4 \uccb4\ud06c' if kill
+              else r'Sealed-condition cross-check|\ubd09\uc778 \ub300\uc870')
+    sections = re.findall(r'^## [^\n]*(?:'+marker+r')[^\n]*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+    if len(sections) != 1:
+        raise ValueError('required closure section must occur exactly once')
     # Unicode escapes keep this shared source locale-neutral for publication.
     groups = [('Result triggers', '\uacb0\uacfc\uac00') if linked
               else ('Kill wording', 'kill \ubb38\uc5b8')]
     if kill:
         groups += [('Anchor', '\uc575\ucee4'), ('Independent', '\ub3c5\ub9bd'),
                    ('Implementation', '\uad6c\ud604'), ('Catalog', '\ub3c4\uac10')]
-    labels = re.findall(r'^- \*\*([^*]+)\*\*:', text, re.M)
+    labels = re.findall(r'^- \*\*([^*]+)\*\*:', sections[0], re.M)
     for alternatives in groups:
         if sum(any(label.startswith(prefix) for prefix in alternatives) for label in labels) != 1:
             raise ValueError('missing or duplicated required closure field: '+alternatives[0])

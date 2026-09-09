@@ -90,7 +90,9 @@ checked items, and uses that same snapshot through all rounds. `ralph NAME --che
 is read-only: it checks every item's syntax but runs no agent or verification
 command. The MCP eligibility tool calls this exact path, including `YEOUL_PROJECTS`.
 
-Ralph never launches an extra round beyond `--max-rounds`. Agent and verification
+Ralph never launches an extra round beyond `--max-rounds`. Logs live in a unique
+`dev/ralph_log/run-*` directory per invocation; reruns do not overwrite earlier evidence.
+Agent and verification
 commands have `--round-timeout` and `--verify-timeout` limits (seconds, default 120).
 Token usage is counted from the backend's JSON `usage.input_tokens/output_tokens`;
 missing/invalid counts stop as **unmeasured**, not zero. The token budget is a
@@ -119,6 +121,8 @@ if a post-write check fails, inspect the reported error and ledger before retryi
 ## Installation and verification
 
 Python >=3.10 and Bash are required (Windows: install Git Bash). Wheels and sdists
+use Git Bash rather than the Windows System32 WSL launcher. Set `YEOUL_BASH` to a
+custom Bash executable if discovery is insufficient. Wheels and sdists
 include the scripts and spec templates; `YEOUL_BIN` is only an explicit override
 for a custom checkout. Test an installed wheel from outside the source directory.
 Both source and packaged paths are covered in CI. Commands execute with the

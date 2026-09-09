@@ -18,6 +18,22 @@ from test_hardening import ledger
 
 
 class Surface(unittest.TestCase):
+    def test_windows_prefers_git_bash_and_rejects_wsl_launcher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shell = root/'Git'/'bin'/'bash.exe'
+            shell.parent.mkdir(parents=True)
+            shell.touch()
+            git = root/'Git'/'cmd'/'git.exe'
+            with patch.dict(os.environ, {}, clear=True), patch.object(server.shutil, 'which', return_value=str(git)):
+                self.assertEqual(server.bash_command('win32'), str(shell))
+            with patch.dict(os.environ, {}, clear=True), patch.object(server.shutil, 'which',
+                       side_effect=lambda cmd: None if cmd == 'git' else 'C:/Windows/System32/bash.exe'):
+                with self.assertRaises(FileNotFoundError):
+                    server.bash_command('win32')
+            with patch.dict(os.environ, {'YEOUL_BASH':'explicit-bash'}):
+                self.assertEqual(server.bash_command('win32'), 'explicit-bash')
+
     def test_cli_mcp_eligibility_and_nondefault_projects_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
