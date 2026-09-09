@@ -8,6 +8,7 @@ BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"
 WS="$(mktemp -d)"; trap 'rm -rf "$WS"' EXIT
 cd "$WS"
 export YEOUL_PROJECTS="$WS/projects"
+export AM_LEDGER="$WS/actions.jsonl" YEOUL_INDEX="$WS/index.md"
 
 echo "### workspace: $WS"
 echo
@@ -30,7 +31,7 @@ sedi 's/^- \*\*Independent.*/- **Independent angles converged**: 2 independent m
 sedi 's/^- \*\*Implementation.*/- **Implementation defect ruled out**: cache logic reviewed, not a bug (demo)/' "$SUM"
 sedi 's/^- \*\*Catalog.*/- **Catalog cross-check**: none (demo)/' "$SUM"
 sedi 's/^- \*\*Kill wording.*/- **Kill wording match**: matches the pre-registered kill-condition verbatim (demo)/' "$SUM"
-echo -n "    filled + re-run: "; "$BIN/arc-close" "$ARC" "KILL — no speedup" --stop=falsified >/dev/null 2>&1 && echo "SEALED + archived" || echo "still refused"
+echo -n "    filled + re-run: "; "$BIN/arc-close" "$ARC" "KILL — batching showed no speedup" --stop=falsified >/dev/null && echo "ARCHIVED (recording state reported separately)"
 
 echo
 echo "### 3) (parallel) a GO project → dev handoff → verify-gate"

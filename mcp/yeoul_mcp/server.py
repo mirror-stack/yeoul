@@ -11,7 +11,8 @@ your own judgment as a tool verdict.
 """
 from __future__ import annotations
 import os
-import shlex
+import shutil
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -40,7 +41,33 @@ except ImportError:  # executed as a bare file: the package's parent isn't on sy
     from yeoul_mcp import __version__
 mcp._mcp_server.version = __version__
 
-BIN = Path(os.environ.get("YEOUL_BIN", Path(__file__).resolve().parents[2] / "bin"))
+_BUNDLED = Path(__file__).resolve().parent / "_harness" / "bin"
+BIN = Path(os.environ.get("YEOUL_BIN", _BUNDLED if _BUNDLED.is_dir()
+                          else Path(__file__).resolve().parents[2] / "bin"))
+
+
+def bash_command(platform: str | None = None) -> str:
+    """Prefer Git Bash on Windows; System32/bash.exe is a WSL launcher, not this runtime."""
+    if os.environ.get('YEOUL_BASH'):
+        return os.environ['YEOUL_BASH']
+    if (platform or sys.platform) != 'win32':
+        return 'bash'
+    candidates = []
+    git = shutil.which('git')
+    if git:
+        candidates += [Path(git).parent.parent/'bin'/'bash.exe',
+                       Path(git).parent.parent/'usr'/'bin'/'bash.exe']
+    for key in ('ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA'):
+        if os.environ.get(key):
+            base = Path(os.environ[key])
+            candidates += [base/'Git'/'bin'/'bash.exe', base/'Programs'/'Git'/'bin'/'bash.exe']
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    found = shutil.which('bash')
+    if found and 'system32' not in found.lower() and 'windowsapps' not in found.lower():
+        return found
+    raise FileNotFoundError('Git Bash not found; install Git for Windows or set YEOUL_BASH to its bash.exe')
 
 
 def _run(script: str, *args: str, cwd: str | None = None, stdin: str | None = None) -> dict:
@@ -48,8 +75,11 @@ def _run(script: str, *args: str, cwd: str | None = None, stdin: str | None = No
     path = BIN / script
     if not path.exists():
         return {"exit_code": 127, "stdout": "", "stderr": f"script not found: {path}"}
-    interp = [os.environ.get("YEOUL_BASH", "bash")] if not script.endswith(".py") else [sys.executable]
-    cmd = [*interp, str(path), *args]
+    try:
+        interp = [bash_command()] if not script.endswith(".py") else [sys.executable]
+    except OSError as exc:
+        return {"exit_code": 127, "stdout": "", "stderr": str(exc)}
+    cmd = [*interp, path.as_posix(), *args]
     # 🔴 stdin: never inherit the parent's. On an MCP STDIO server the parent's stdin IS the
     #    protocol pipe, and a child that inherits it steals protocol bytes — the tool then
     #    hangs until timeout (field report, Windows/Codex, 2026-08-24).
@@ -57,15 +87,29 @@ def _run(script: str, *args: str, cwd: str | None = None, stdin: str | None = No
     #    non-UTF-8 default (CP949) the strip fails and a trivial "yes" arrives long enough to
     #    clear the substance checks. That is a gate-integrity bug, not a display bug.
     env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    if not script.endswith('.py'):
+        env['YEOUL_BASH'] = interp[0]
     try:
-        p = subprocess.run(
+        with subprocess.Popen(
             cmd, cwd=cwd or os.getcwd(),
-            input=stdin if stdin is not None else "",
-            capture_output=True, text=True, encoding="utf-8", env=env, timeout=120,
-        )
-        return {"exit_code": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
-    except subprocess.TimeoutExpired:
-        return {"exit_code": 124, "stdout": "", "stderr": "timeout"}
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", env=env, start_new_session=os.name == "posix",
+        ) as child:
+            try:
+                stdout, stderr = child.communicate(input=stdin if stdin is not None else "", timeout=120)
+                return {"exit_code": child.returncode, "stdout": stdout, "stderr": stderr}
+            except subprocess.TimeoutExpired:
+                if os.name == "posix":
+                    try:
+                        os.killpg(child.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                else:
+                    child.kill()
+                child.communicate()
+                return {"exit_code": 124, "stdout": "", "stderr": "timeout"}
+    except (OSError, UnicodeError) as exc:
+        return {"exit_code": 127, "stdout": "", "stderr": str(exc)}
 
 
 @mcp.tool()
@@ -98,10 +142,12 @@ def arc_ticket(arc_dir: str, role: str, slug: str, body: str, ref: str = "") -> 
 
 
 @mcp.tool()
-def loop_guard_tick(arc_dir: str, tokens: int = 0, progress: bool = True) -> dict:
+def loop_guard_tick(arc_dir: str, tokens: int | None = None, progress: bool = True) -> dict:
     """Tick the runaway guard for a round. Returns CONTINUE or STOP:max-rounds/budget/no-progress."""
-    return _run("loop-guard", arc_dir, "tick", f"--tokens={tokens}",
-                f"--progress={'yes' if progress else 'no'}")
+    args = [arc_dir, "tick", f"--progress={'yes' if progress else 'no'}"]
+    if tokens is not None:
+        args.append(f"--tokens={tokens}")
+    return _run("loop-guard", *args)
 
 
 @mcp.tool()
@@ -124,24 +170,14 @@ def arc_close(arc_dir: str, verdict: str, stop: str = "converged") -> dict:
 
 @mcp.tool()
 def build_handoff(name: str, workspace: str = ".") -> dict:
-    """Generate dev-plan.md + TODO.md from the spec + closed-arc verdict (GO handoff)."""
+    """Generate a dev skeleton, NOT authorization to build. Missing/negative verdicts remain manual gates."""
     return _run("build-handoff", name, cwd=workspace)
 
 
 @mcp.tool()
 def ralph_gate_check(name: str, workspace: str = ".") -> dict:
-    """Dry check: does dev/TODO.md qualify for the autonomous loop? Refuses (exit 3) if any unchecked item
-    lacks a `verify:` command. (Does NOT run the loop — the unattended loop must be launched from a terminal.)"""
-    # loop-eligibility is the first thing ralph checks; surface it without running rounds.
-    todo = Path(workspace) / "projects" / name / "dev" / "TODO.md"
-    if not todo.exists():
-        return {"exit_code": 1, "stdout": "", "stderr": f"no TODO: {todo}"}
-    bad = [ln for ln in todo.read_text(encoding="utf-8").splitlines()
-           if ln.startswith("- [ ]") and "verify:" not in ln]
-    if bad:
-        return {"exit_code": 3, "stdout": "", "stderr": "not loop-eligible (missing verify: commands):\n"
-                + "\n".join("    " + b for b in bad)}
-    return {"exit_code": 0, "stdout": "loop-eligible: all unchecked items have verify commands", "stderr": ""}
+    """Read-only eligibility check of ALL items, using the real CLI parser. No loop or verification runs."""
+    return _run("ralph", name, "--check", cwd=workspace)
 
 
 @mcp.tool()
@@ -154,11 +190,14 @@ def arc_prereg(arc_dir: str, claim_id: str, ledger: str = "", workspace: str = "
 
 @mcp.tool()
 def verify_gate(todo_path: str, revert: bool = True, require_verify: bool = True,
-                workspace: str = ".") -> dict:
+                workspace: str = ".", baseline_path: str = "") -> dict:
     """Re-run the `verify:` command of every checked TODO item and revert the boxes that do not pass. This is
     the harness half of the dev loop — backend A (in-session) MUST call it each round, or nothing has been
-    verified but the agent's word. require_verify also reverts a checked item whose verify clause is missing."""
+    verified but the agent's word. Requires a supervisor-created baseline (default TODO.verify-baseline.json).
+    Changed criteria are refused BEFORE executing commands. Protect baseline and tests from worker writes."""
     args = [todo_path] + (["--revert"] if revert else []) + (["--require-verify"] if require_verify else [])
+    if baseline_path:
+        args.append(f"--baseline={baseline_path}")
     return _run("verify-gate", *args, cwd=workspace)
 
 

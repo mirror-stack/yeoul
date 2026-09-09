@@ -45,16 +45,16 @@ self-critique your own proposal · run the 7-check before concluding · don't cl
 
 ## ④ Convergence
 Each round, the relay summarizes and judges. **Every round summary must include 3 lines:**
-- **Re-anchor** — still consistent with the spec's success- and kill-conditions? (deliberation drifts 76–89%)
-- **Flip log** — who changed position, which direction (right→wrong / wrong→right)? (sycophantic flips are mostly right→wrong)
+- **Re-anchor** — still consistent with the spec's success- and kill-conditions? (deliberation can drift)
+- **Flip log** — who changed position, which direction (right→wrong / wrong→right)? (record evidence for the change, not agreement alone)
 - **Consensus quality** — unanimity with no initial disagreement is an **⚠️ alarm** (suspected sycophancy),
   not a convergence credit; overturning a *wrong* consensus is a credit.
 
 `bin/loop-guard` bounds runaway (max-rounds / token-budget / no-progress). Convergence itself is a semantic
-call, not the guard's job. **More rounds do not improve quality** — the guards exist because debate drifts.
+call, not the guard's job. **More rounds alone do not establish quality** — the guards exist because debate drifts.
 
 Close with `bin/arc-close` (2-phase): it drafts a summary; you fill the blanks; re-running seals only when
-they're filled. A **falsified/KILL** close (and only that close) additionally requires the **🛡️ KILL-defense 5-check**:
+they're filled. Archival and optional action recording have separate states. A **falsified/KILL** close (and only that close) additionally requires the **🛡️ KILL-defense 5-check**:
 anchor (positive control) reproduced · ≥2 independent angles converged · implementation defect ruled out ·
 catalog cross-check · verbatim kill-wording. This is the anti-premature-closure gate.
 
@@ -62,7 +62,8 @@ catalog cross-check · verbatim kill-wording. This is the anti-premature-closure
 linked it to the arc (`bin/arc-prereg <arc_dir> <claim_id> [ledger]`), the check no longer asks the agent to
 *type* whether the verdict matches the pre-registration. Instead the harness reads the sealed kill-condition
 from the ledger and **injects it verbatim** into the record; on close it refuses if that line was edited or
-removed. The agent is not the author of the condition, so it cannot be silently widened at close.
+removed. v0.3 also verifies all ledger hashes/links and pins the first registration seal.
+A mismatched or removed binding is refused; rewriting all local files is outside this trust boundary.
 
 This injection is **independent of how the close is labelled**. That matters more than it sounds: the label
 (`--stop`, the verdict string) is written by the closing agent at closing time, so keying the anchor to it
@@ -95,27 +96,24 @@ Run the dev loop two ways (Ralph pattern):
 - **(A) in-session** — the session drives each round with a subagent: implement the top item → run its
   `verify:` command → check off only on exit 0 → re-verify prior items. Preferred; no nesting.
 - **(B) unattended** — `bin/ralph <name>` from a terminal (it shells out to a headless agent CLI, so it
-  can't run inside that same agent). Bounded by loop-guard.
+  can't run inside that same agent). Bounded by the supervisor's in-memory round and reported-token counters.
 
 **Loop-forbidden (belongs to the human/session):** measurement runs, sealing, PASS/KILL judgment. The loop's
 safety comes from the machine-verification gate, not from the loop — it is only as good as your verify commands.
+
+Before backend A starts, the supervisor runs `bin/verify-baseline <TODO>` (or supplies
+`--baseline=PROTECTED_PATH`). Keep the baseline and test implementations outside worker write access.
 
 The gate is **harness-enforced, not requested**: after each round the harness runs
 `bin/verify-gate <TODO> --revert --require-verify`, which independently re-runs the `verify:` command of every
 checked item and flips any that don't exit 0 back to `[ ]`. `ralph` does this automatically; **in backend A the
 session must run it too** (MCP: the `verify_gate` tool) — otherwise nothing has been verified but the agent's word.
 
-Scope, honestly: the gate keys on the `verify:` clause, which lives in a file the agent can edit. Deleting the
-clause while ticking the box used to make the item invisible to the gate, so it survived unverified. That is what
-`--require-verify` closes — a checked item with no verify clause is now reverted too, and `ralph` refuses a TODO
-where any item lacks the clause. What remains outside the machine's reach is the *content* of a verify command:
-a command that does not actually test the item will still exit 0. Write commands that can fail.
+Scope: the approved TODO, including commands and criteria, is frozen before work. Ralph keeps
+that snapshot in parent memory; standalone verification requires the supervisor's baseline file.
+Only checkbox changes are accepted. A verifier that was inadequate at approval time remains
+inadequate, and an agent with access to the test implementations can still weaken those tests.
+This is not an OS sandbox or an independent proof of scientific results.
 
-## Exits
-- **graduate** (success): `bin/graduate` → moves the project out of the incubator, leaves a pointer.
-- **close-project** (retire/reject): `bin/close-project` → archives with a `_CLOSED.md`, freezes open arcs,
-  optionally seals the closure. History is preserved — no silent deletion.
-
-## Invariant checkpoints (never automate)
-Graduation, closing, and any irreversible/outward action are human confirmations. The loop runtimes are
-borrowed; the honesty gates are yours.
+See [integrity and migration](INTEGRITY.md) for legacy preregistration upgrades, timeouts,
+unknown token usage, packaged installation, and the explicit `arc-result` measurement bridge.

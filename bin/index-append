@@ -2,8 +2,8 @@
 set -uo pipefail
 # index-append <archived_arc_dir>
 #   Hands-off, auto-growing arc-close knowledge index. arc-close calls this after archiving.
-#   Joins only sealed sources (the archived _SUMMARY + a linked mm claim) → appends to one file
-#   (never rots; not a new store). Index path = $YEOUL_INDEX, default <repo>/KNOWLEDGE_INDEX.md.
+#   Derived view of archived summaries and verified bindings, not a proof store.
+#   Index path = $YEOUL_INDEX, default ./KNOWLEDGE_INDEX.md in the caller's workspace.
 #   Best-effort: a failure here never affects the close.
 
 # Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
@@ -14,9 +14,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARC_DIR="${1:-}"; [ -n "$ARC_DIR" ] && [ -d "$ARC_DIR" ] || exit 0
 ARC="$(basename "$ARC_DIR")"
 SUM="$(ls "$ARC_DIR"/_SUMMARY_*.md 2>/dev/null | head -1)"; [ -f "$SUM" ] || exit 0
-INDEX="${YEOUL_INDEX:-$SCRIPT_DIR/../KNOWLEDGE_INDEX.md}"
+INDEX="${YEOUL_INDEX:-./KNOWLEDGE_INDEX.md}"
 
 CLAIM="-"; [ -f "$ARC_DIR/.prereg" ] && CLAIM="$(sed -n '1p' "$ARC_DIR/.prereg")"
+CLAIM_VERIFIED=0
+if [ "$CLAIM" != "-" ] && "$PY" "$SCRIPT_DIR/prereg_check.py" resolve "$ARC_DIR" >/dev/null 2>&1; then CLAIM_VERIFIED=1; fi
+RECORD_STATE="$(sed -n 's/^ARCHIVE_RECORD //p' "$ARC_DIR/STATE.md" 2>/dev/null | tail -1)"
 
 read -r DATE STOP < <($PY - "$SUM" <<'PY'
 import re,sys
@@ -53,7 +56,7 @@ PY
 [ -f "$INDEX" ] || cat > "$INDEX" <<'HDR'
 # 🌊 Yeoul arc-close knowledge index (auto-generated — do not hand-edit)
 
-> arc-close appends here on close. Source = sealed _SUMMARY + any linked claim. New rows accrue below.
+> arc-close appends here on archive. A summary is not necessarily sealed; see recording state.
 > Each entry: date · verdict · stop · arc · sealed claim · one-line conclusion.
 
 HDR
@@ -65,8 +68,10 @@ REL="${ARC_DIR#"$SCRIPT_DIR"/../}"
   # 🔴 Always emit this row. It used to be printed only when a claim existed, so an unsealed close
   #    produced an entry with the line simply absent — and the index header promises the column.
   #    A reader could not tell "no seal" from "this row predates the field" or "the write failed".
-  if [ "$CLAIM" != "-" ]; then printf -- '- **Sealed claim**: `%s`\n' "$CLAIM"
+  if [ "$CLAIM_VERIFIED" = "1" ]; then printf -- '- **Sealed claim**: `%s` (hash-verified binding)\n' "$CLAIM"
+  elif [ "$CLAIM" != "-" ]; then printf -- '- **Linked claim (UNVERIFIED)**: `%s`\n' "$CLAIM"
   else printf -- '- **Sealed claim**: none (closed with one key only)\n'; fi
+  printf -- '- **Archive recording**: %s\n' "${RECORD_STATE:-unknown (historical or no state record)}"
   printf -- '- **Closed**: %s\n' "$CLOSED"
   printf -- '- source: %s\n\n' "$REL"
 } >> "$INDEX"

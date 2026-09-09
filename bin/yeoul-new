@@ -57,7 +57,7 @@ cat > "$STAGE/README.md" << MDEOF
 
 - design (incubation): [design/](design/) — spec · deliberation arcs · summaries
 - dev: [dev/](dev/)
-- when mature: \`yeoul-graduate $NAME\`.
+- when mature: \`graduate $NAME\` (supervisor decision).
 MDEOF
 
 # everything rendered; publish the staged tree in one move, then stop cleaning it up.

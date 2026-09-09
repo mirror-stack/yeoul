@@ -22,6 +22,9 @@ _trunc100() {
 verdict_of() {
   local proj="$1"
   local s
+  local active
+  active="$(find "$proj/design/arcs" -type f -path '*/ARC/*.md' -not -path '*/_archive/*' 2>/dev/null | wc -l | tr -d ' ' || true)"
+  if [ "${active:-0}" -gt 0 ]; then echo "IN-PROGRESS ($active active arcs; archived verdict is historical)"; return; fi
   s="$(ls -t "$proj"/design/arcs/_archive/*/_SUMMARY_*.md 2>/dev/null | head -1 || true)"
   [ -n "$s" ] || { echo "-"; return; }
   grep -m1 'Verdict' "$s" 2>/dev/null | sed -E 's/^[[:space:]]*-[[:space:]]*(\*\*)?Verdict(\*\*)?:[[:space:]]*//' | _trunc100 || echo "-"

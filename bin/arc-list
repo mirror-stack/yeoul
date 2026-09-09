@@ -31,7 +31,7 @@ for root in $ROOTS; do
     if [ "$archived" = "1" ]; then status="Archived"; fi
     title="$(field title "$arcfile")"
     roles="$(field roles "$arcfile")"
-    if [ "$OPEN_ONLY" = "1" ] && [ "$status" != "In-Progress" ]; then continue; fi
+    if [ "$OPEN_ONLY" = "1" ] && [ "$status" != "In-Progress" ] && [ "$status" != "Close-Pending" ]; then continue; fi
     printf '%s\t%s\t%s\t%s\n' "${status:-?}" "$arcdir" "${title:-?}" "${roles:-?}"
   done < <(find "$root" -type f -path '*/ARC/*.md' 2>/dev/null)
 done

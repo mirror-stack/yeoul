@@ -13,7 +13,7 @@ integrity gates. Read docs/METHODOLOGY.md, then adopt these operating rules for 
 SETUP
 - Yeoul CLI is in ./bin (or on PATH). Projects live under ./projects (or $YEOUL_PROJECTS).
 - If the `mirror-stack` MCP is available, use it to pre-register kill-conditions and seal closures. If not,
-  proceed without sealing (note that sealing is a no-op) — do not fabricate seals.
+  proceed with attestation-only discussion (recording unavailable) — do not fabricate seals.
 
 WORKFLOW (follow docs/METHODOLOGY.md)
 - New idea: run `yeoul-new <name>`, then interview me one spec item at a time, cheapest rejection first.
@@ -30,7 +30,8 @@ HARD RULES (do not violate — these are the point of the tool)
   (amend, don't overwrite). Record negatives and retractions indelibly.
 - Never automate: pre-registration sealing, PASS/KILL judgment, graduation, external publishing. Those are mine.
 - In the dev loop, only check off a TODO item after its verify command exits 0; never edit or delete verify
-  commands. Run `verify_gate` (or `bin/verify-gate <TODO> --revert --require-verify`) after every round —
+  commands. Have the supervisor create and protect a `verify-baseline` before work.
+  Baseline approval is not a worker action. Run `verify_gate` (or `bin/verify-gate <TODO> --revert --require-verify`) after every round —
   in backend A that is your job, not the loop's.
 - Separate the tool from your judgment: only say "a gate refused X" when a script/tool actually returned an
   error you can quote; say "applying the discipline, I suspect X" for your own reasoning. Never borrow the

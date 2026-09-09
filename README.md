@@ -11,9 +11,10 @@
 **Yeoul is a file-based harness for running deliberation → pre-registration → autonomous work loops
 with integrity gates that resist self-deception and premature closure.** It is the *practice layer*
 on top of a measurement-discipline primitive (pre-registration + a tamper-evident ledger): the
-primitive answers *"is this claim honest?"*; Yeoul answers *"how do I run a disciplined idea loop end to end?"*
+primitive checks recorded evidence and integrity; Yeoul answers *"how do I run a disciplined idea loop end to end?"*
 
-> ⚠️ **Work in progress — not yet released.** This README is a positioning draft, not a launch page.
+> **v0.3.0: integrity-contract hardening.** See the [changelog](CHANGELOG.md) and
+> [trust boundaries, installation and migration guide](docs/INTEGRITY.md).
 
 ## Install
 
@@ -33,7 +34,7 @@ Register both MCP servers with your client (Claude Desktop/Code — merge `setup
 } }
 ```
 
-mirror-stack is optional — without it, sealing degrades to a no-op and everything else still runs
+mirror-stack is optional — without a recorder, discussion closes are explicitly file-only
 (`setup/install.sh --no-mirror-stack`).
 
 ## Quickstart
@@ -70,7 +71,8 @@ New to the method? Read [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md), then paste
 - **Verify-gated dev loop** — each automated development round advances one TODO item and may only check it
   off after its own machine verification command exits 0, re-run by the harness rather than reported by the
   agent. Items without a verify command are refused — including checked ones, so deleting the clause is not
-  a way out. (A verify command that cannot fail is still a hole: that part is on the author.)
+  a way out. Original TODO criteria are pinned before work; changing commands or deleting items is refused.
+  (Test adequacy and protection of the test implementations remain the supervisor's responsibility.)
 
 ## Layers
 
@@ -79,11 +81,12 @@ New to the method? Read [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md), then paste
 | Primitive | pre-registration + tamper-evident ledger | *(optional dependency — the mirror-stack)* |
 | Practice | deliberation arcs, gates, dev handoff | **this repo** |
 
-The mirror-stack dependency is optional: without it, sealing degrades to a no-op and everything else runs.
+Mirror is optional for discussion. Linked claims must still pass offline hash verification.
+Use `arc-result` only for an explicit, supervisor-judged measurement result; discussion closure is not publication.
 
 ## Status / honesty notes
 
 - The autonomous development loop ("Ralph"-style) is the **least-validated, most-commodity** part; its safety
   comes from the machine-verification gate, not the loop itself. Do not treat it as a proven technique.
 - No claim here is that Yeoul improves research *outcomes*. The claim is narrower: it makes honest
-  discipline the **default and hard-to-skip**, which is exactly what current autonomous-research systems lack.
+  discipline explicit and mechanically checked in the supported paths. It is not an OS security boundary.
