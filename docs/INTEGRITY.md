@@ -120,8 +120,8 @@ if a post-write check fails, inspect the reported error and ledger before retryi
 
 ## Installation and verification
 
-Python >=3.10 and Bash are required (Windows: install Git Bash). Wheels and sdists
-use Git Bash rather than the Windows System32 WSL launcher. Set `YEOUL_BASH` to a
+Python >=3.10 and Bash are required (Windows: install Git Bash). The MCP server
+uses Git Bash rather than the Windows System32 WSL launcher. Set `YEOUL_BASH` to a
 custom Bash executable if discovery is insufficient. Wheels and sdists
 include the scripts and spec templates; `YEOUL_BIN` is only an explicit override
 for a custom checkout. Test an installed wheel from outside the source directory.

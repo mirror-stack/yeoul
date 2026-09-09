@@ -21,6 +21,8 @@ All notable changes to this project are documented here.
   the supplied status/evidence and reports a publication gate, but never publishes.
 - Bundle harness/templates in wheels and sdists, isolate tests from production
   ledgers/indexes, and test installation away from the checkout.
+- Prefer Git Bash on Windows over the System32 WSL launcher. Keep per-run logs
+  without overwriting older evidence; require defense answers inside their checked section.
 - Refresh active docs, command references, installation failure handling and migration
   guidance. See [INTEGRITY.md](docs/INTEGRITY.md) for limitations and upgrade steps.
 
