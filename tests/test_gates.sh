@@ -13,6 +13,7 @@ PY="$(yeoul_pybin)" || yeoul_pybin_die
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"
 WS="$(mktemp -d)"; trap 'rm -rf "$WS"' EXIT
 cd "$WS"; export YEOUL_PROJECTS="$WS/projects"
+export AM_LEDGER="$WS/actions.jsonl" YEOUL_INDEX="$WS/index.md"
 FAIL=0
 # 🔴 count what was collected. "all gate tests passed" is also what a run that collected ZERO
 #    checks prints — the summary has to carry its own denominator, and an empty run has to fail.
@@ -82,6 +83,7 @@ grep -q "UNSEALED" "$WS/arcs/_archive"/*_g/_SUMMARY_*.md && echo "  ✓ unsealed
 # --- ① sealed kill-condition injection (harness injects verbatim; agent is not its author) ---
 LEDGER="$WS/ledger.jsonl"
 printf '%s\n' '{"claim_id":"c1","metric":"m","kill_condition":"effect size d < 0.2 over >= 3 seeds","kill_threshold":{}}' > "$LEDGER"
+"$PY" "$BIN/../tests/seal_fixture.py" "$LEDGER"
 "$BIN/arc-open" s --topic="sealed gate" --arcs-dir="$WS/arcs" >/dev/null 2>&1
 SARC="$(ls -d "$WS"/arcs/*_s)"
 # A seal may no longer attach to an arc with a blank spec (see the DUAL KEY block below),
@@ -158,13 +160,13 @@ printf -- '- [ ] ok. verify: `true`\n' > "$WS/projects/p/dev/TODO.md"
 # --- harness-enforced verify-gate: a falsely-checked item is re-run and reverted ---
 T2="$WS/t2.md"
 printf -- '- [x] lie: claimed done but verify fails. verify: `false`\n- [x] honest. verify: `true`\n' > "$T2"
-"$BIN/verify-gate" "$T2" --revert >/dev/null 2>&1; assert "verify-gate flags a failing checked item" 1 $?
+"$BIN/verify-gate" "$T2" --current-only --revert >/dev/null 2>&1; assert "verify-gate flags a failing checked item" 1 $?
 grep -q '^- \[ \] lie' "$T2" && echo "  ✓ harness reverted the false [x] → [ ]" || { echo "  ✗ false [x] not reverted"; FAIL=1; }
 grep -q '^- \[x\] honest' "$T2" && echo "  ✓ genuine [x] left intact" || { echo "  ✗ genuine [x] wrongly reverted"; FAIL=1; }
 # decoy: an appended `verify: `true`` must NOT override a real failing first command (greedy-extraction bug)
 T3="$WS/t3.md"
 printf -- '- [x] decoy. verify: `false` verify: `true`\n' > "$T3"
-"$BIN/verify-gate" "$T3" --revert >/dev/null 2>&1
+"$BIN/verify-gate" "$T3" --current-only --revert >/dev/null 2>&1
 grep -q '^- \[ \] decoy' "$T3" && echo "  ✓ decoy double-verify reverted (first block wins)" || { echo "  ✗ decoy passed (greedy bug)"; FAIL=1; }
 
 # --- clause-deletion bypass: ticking a box after deleting `verify:` must not survive ---
@@ -172,12 +174,12 @@ grep -q '^- \[ \] decoy' "$T3" && echo "  ✓ decoy double-verify reverted (firs
 # to be invisible to it and passed silently. Observed, not hypothetical.
 T4="$WS/t4.md"
 printf -- '- [x] deleted its own verify clause\n' > "$T4"
-"$BIN/verify-gate" "$T4" >/dev/null 2>&1; assert "clause-less checked item passes without --require-verify (compat)" 0 $?
-"$BIN/verify-gate" "$T4" --revert --require-verify >/dev/null 2>&1; assert "clause-less checked item fails with --require-verify" 1 $?
+"$BIN/verify-gate" "$T4" --current-only >/dev/null 2>&1; assert "clause-less checked item passes without --require-verify (compat)" 0 $?
+"$BIN/verify-gate" "$T4" --current-only --revert --require-verify >/dev/null 2>&1; assert "clause-less checked item fails with --require-verify" 1 $?
 grep -q '^- \[ \] deleted its own verify clause' "$T4" && echo "  ✓ clause-less box reverted to [ ]" || { echo "  ✗ clause-less box survived"; FAIL=1; }
 # a genuine passing item must still survive under the same flag (no false positives)
 printf -- '- [x] real. verify: `true`\n' > "$T4"
-"$BIN/verify-gate" "$T4" --revert --require-verify >/dev/null 2>&1; assert "genuine checked item still passes under --require-verify" 0 $?
+"$BIN/verify-gate" "$T4" --current-only --revert --require-verify >/dev/null 2>&1; assert "genuine checked item still passes under --require-verify" 0 $?
 grep -q '^- \[x\] real' "$T4" && echo "  ✓ genuine box left checked" || { echo "  ✗ genuine box wrongly reverted"; FAIL=1; }
 # ralph must refuse a TODO whose CHECKED item lacks a verify clause (was only checking unchecked ones)
 printf -- '- [x] checked without verify\n- [ ] ok. verify: `true`\n' > "$WS/projects/p/dev/TODO.md"
@@ -525,6 +527,7 @@ done
 # ─────────────────────────────────────────────────────────────────────────────────────────
 DK="$WS/dk"; mkdir -p "$DK"
 printf '%s\n' '{"claim_id":"dk-1","kill_condition":"the dual-key gate lets a blank spec through"}' > "$DK/led.jsonl"
+"$PY" "$BIN/../tests/seal_fixture.py" "$DK/led.jsonl"
 
 # --- the lock: a blank spec may not take a seal ---
 "$BIN/arc-open" dkblank --arcs-dir="$DK/arcs" >/dev/null 2>&1
@@ -605,7 +608,7 @@ NB="$(ls -d "$DKN"/arcs/*probe 2>/dev/null | head -1)"
 run_bare arc-list "$BIN/arc-list" --arcs-dir="$DKN/arcs"
 run_bare arc-roles "$BIN/arc-roles" "$NB"
 run_bare build-handoff "$BIN/build-handoff" probe
-run_bare verify-gate "$BIN/verify-gate" "$DKN/projects/probe/dev/TODO.md"
+run_bare verify-gate "$BIN/verify-gate" "$DKN/projects/probe/dev/TODO.md" --current-only
 run_bare loop-guard "$BIN/loop-guard" "$NB"
 run_bare arc-close-draft "$BIN/arc-close" "$NB" "GO — no mirror"
 [ -n "$NB" ] && sedi 's/- (fill in)/- concrete conclusion here/' "$(ls "$NB"/_SUMMARY_*.md)"

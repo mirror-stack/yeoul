@@ -22,11 +22,14 @@ jobs:
       - name: Lint — every bash script parses
         run: |
           for f in bin/* setup/*.sh examples/*.sh tests/*.sh; do
+            [ -f "$f" ] || continue
             case "$f" in *.py) continue ;; esac
             bash -n "$f"
           done
       - name: Gate smoke tests
         run: bash tests/test_gates.sh
+      - name: Adversarial integrity and bounded-loop contracts
+        run: python tests/test_hardening.py
       - name: Worked example
         run: bash examples/demo.sh
       - name: Pre-publish gate (leaks / over-claim / worked example)
@@ -75,3 +78,36 @@ jobs:
         # The import check above proves the module loads; it never reads the handshake. This
         # step launches the server and reads what it actually says on the wire.
         run: python mcp/tests/test_serverinfo_version.py
+      - name: Install compatible Mirror contract for integration tests
+        run: pip install "git+https://github.com/mirror-stack/mirror-stack-mcp@v0.2.14"
+      - name: CLI/MCP parity and real Mirror result contract
+        run: python mcp/tests/test_surface_contract.py
+      - name: Installed harness works away from the checkout
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP"
+          python - <<'PY'
+          import tempfile
+          from pathlib import Path
+          from yeoul_mcp import server
+          assert '_harness' in str(server.BIN), server.BIN
+          with tempfile.TemporaryDirectory() as tmp:
+              result = server.yeoul_new('installed-smoke', workspace=tmp, no_arc=True)
+              assert result['exit_code'] == 0, result
+              spec = Path(tmp)/'projects'/'installed-smoke'/'design'/'spec.md'
+              assert '**Goal**' in spec.read_text(encoding='utf-8')
+          PY
+      - name: Source archive builds a self-contained wheel too
+        shell: bash
+        run: |
+          python -m pip install build
+          python -m build ./mcp --sdist --outdir "$RUNNER_TEMP/yeoul-sdist"
+          python -m pip wheel "$RUNNER_TEMP"/yeoul-sdist/*.tar.gz --no-deps --wheel-dir "$RUNNER_TEMP/yeoul-wheel"
+          python - <<'PY'
+          import os, zipfile
+          from pathlib import Path
+          wheel = next((Path(os.environ['RUNNER_TEMP'])/'yeoul-wheel').glob('*.whl'))
+          with zipfile.ZipFile(wheel) as archive:
+              for path in ('bin/arc-close', 'bin/prereg_check.py', 'bin/ralph_core.py', 'templates/spec.md', 'LICENSE'):
+                  assert 'yeoul_mcp/_harness/'+path in archive.namelist(), path
+          PY

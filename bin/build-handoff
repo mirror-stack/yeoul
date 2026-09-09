@@ -53,7 +53,7 @@ cat > "$PLAN" << MDEOF
 - (copy the self-critique / blind-spots here)
 
 ## Graduation
-- success condition met + GO gates passed → \`yeoul-graduate "${NAME}"\`
+- success condition met + GO gates passed → \`graduate "${NAME}"\` (supervisor decision)
 MDEOF
 
 cat > "$DEV/TODO.md" << MDEOF

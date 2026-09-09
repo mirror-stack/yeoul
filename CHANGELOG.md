@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.0] — 2026-09-09
+
+### Integrity contracts and compatibility changes
+
+- Verify every ledger hash/link and pin the first registration; reject unsealed,
+  tampered, malformed, duplicate-key, removed and changed bindings. Legacy links
+  require an explicit verified upgrade; existing archives/ledgers are untouched.
+- Freeze original TODO criteria, reject command replacement/item deletion before
+  executing verification, and share CLI/MCP eligibility. Standalone verification
+  now requires a supervisor baseline; `--current-only` is a labelled manual diagnostic.
+- Keep closure drafts pending until archival; reject deleted defense fields,
+  mismatched verdict metadata, concurrent closes and archive collisions. Record
+  archive-recording state separately, and show active arcs before historical verdicts.
+- Bound Ralph rounds without an extra invocation; add timeouts and stop on unknown
+  token usage. Budgets remain between-round controls, not hard provider caps.
+- Add an explicit `arc-result` bridge to Mirror's bound result contract. It records
+  the supplied status/evidence and reports a publication gate, but never publishes.
+- Bundle harness/templates in wheels and sdists, isolate tests from production
+  ledgers/indexes, and test installation away from the checkout.
+- Refresh active docs, command references, installation failure handling and migration
+  guidance. See [INTEGRITY.md](docs/INTEGRITY.md) for limitations and upgrade steps.
+
 ## [0.2.0] — 2026-08-28
 
 **The first tagged release.** `0.1.0` was never cut: the section below has sat marked *unreleased*

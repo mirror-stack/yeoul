@@ -19,7 +19,9 @@ pip install git+https://github.com/mirror-stack/yeoul#subdirectory=mcp
 yeoul-mcp        # stdio server
 ```
 
-Set `YEOUL_BIN` if the `bin/` scripts are not adjacent to the package.
+v0.3.0 wheels and sdists bundle the harness and templates. Python >=3.10 and Bash
+(Git Bash on Windows) are required. `YEOUL_BIN` overrides the bundled scripts only
+when explicitly pointing to a custom checkout. No checkout is needed for the default MCP setup.
 
 ## Tools
 
@@ -30,8 +32,18 @@ Set `YEOUL_BIN` if the `bin/` scripts are not adjacent to the package.
 linking a seal (so `arc_close` injects the kill-condition verbatim) and re-running a round's verify commands.
 An agent driving Yeoul purely through MCP could not run either — so neither gate held on that path.
 
-Each returns `{exit_code, stdout, stderr}`. A non-zero `exit_code` on `arc_close` (4 = blanks, 5 = KILL-defense)
+Each returns `{exit_code, stdout, stderr}`. Always inspect `exit_code`; a delivered MCP response is not a passing gate.
+A non-zero `exit_code` on `arc_close` (4 = blanks, 5 = defense/binding, 8 = record mismatch, 9 = close/archive conflict)
 or `ralph_gate_check` (3 = ungated item) is an enforced gate, not an error to route around.
+
+`ralph_gate_check` is read-only and calls the same CLI eligibility path. `verify_gate`
+requires a supervisor-created baseline (optional `baseline_path`; default
+`TODO.md.verify-baseline.json`). Create it with the CLI `verify-baseline` before work.
+It is deliberately not a worker-facing MCP approval tool. Missing token counts in
+`loop_guard_tick` stay unmeasured rather than becoming zero.
+
+See [integrity and migration](../docs/INTEGRITY.md) for the complete contract and
+the explicit `arc-result` CLI bridge to Mirror. Closing an arc never publishes a result.
 
 ## Language rule
 

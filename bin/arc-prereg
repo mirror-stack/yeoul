@@ -30,18 +30,8 @@ fi
 [ -n "$LEDGER" ] || { echo "no ledger given (pass one or set \$YEOUL_LEDGER)"; exit 1; }
 [ -f "$LEDGER" ] || { echo "ledger not found: $LEDGER"; exit 1; }
 
-KILL="$($PY - "$LEDGER" "$CLAIM" 2>/dev/null <<'PY'
-import json, sys
-led, cid = sys.argv[1], sys.argv[2]
-for line in open(led, encoding='utf-8', errors='ignore'):
-    line = line.strip()
-    if not line: continue
-    try: d = json.loads(line)
-    except Exception: continue
-    if d.get('claim_id') == cid and d.get('kill_condition'):
-        print(' '.join(str(d['kill_condition']).split())); break
-PY
-)"
+CHECKER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/prereg_check.py"
+KILL="$($PY "$CHECKER" claim "$LEDGER" "$CLAIM")" || exit 1
 [ -n "$KILL" ] || { echo "❌ claim '$CLAIM' with a kill_condition not found in $LEDGER"; exit 1; }
 
 # ── second key: the arc's spec must carry a design before a seal may attach to it ──
@@ -112,7 +102,8 @@ if [ -n "$MISSING" ]; then
 fi
 echo "   ✅ spec carries a design: $CHECKED/$CHECKED fields hold substance."
 
-printf '%s\n%s\n' "$CLAIM" "$LEDGER" > "$ARC_DIR/.prereg"
+KILL="$($PY "$CHECKER" bind "$ARC_DIR" "$CLAIM" "$LEDGER")" || exit 1
 echo "🔒 prereg linked: arc $(basename "$ARC_DIR") ← seal $CLAIM"
 echo "   sealed kill-condition: ${KILL:0:100}$([ "${#KILL}" -gt 100 ] && echo '…')"
-echo "   arc-close will now inject this verbatim (agent cannot re-author it)."
+echo "   Hashes and links verified; first registration pinned. Identity/time/truth not verified."
+echo "   arc-close re-verifies the ledger and the pinned registration on every call."

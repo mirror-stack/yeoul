@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Explicit supervisor action; never inferred from an arc verdict or run by Ralph.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_pybin.sh"
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+exec "$PY" "$(dirname "${BASH_SOURCE[0]}")/result_record.py" "$@"

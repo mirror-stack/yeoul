@@ -1,5 +1,5 @@
 {
-  "_comment": "Register BOTH servers together. Yeoul (practice layer) composes with mirror-stack (discipline primitive: pre-registration + tamper-evident ledger). Merge this into your MCP client config (Claude Desktop/Code: mcpServers). Without mirror-stack, Yeoul still runs — sealing degrades to a no-op.",
+  "_comment": "Register BOTH servers together. Yeoul (practice layer) composes with mirror-stack (discipline primitive: pre-registration + tamper-evident ledger). Merge this into your MCP client config (Claude Desktop/Code: mcpServers). Without mirror-stack, Yeoul still runs — discussion closures are explicitly file-only when no recorder is available. Yeoul includes its own harness; no YEOUL_BIN override is needed.",
   "mcpServers": {
     "mirror-stack": {
       "command": "mirror-stack-mcp"

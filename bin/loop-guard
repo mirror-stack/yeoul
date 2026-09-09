@@ -20,7 +20,15 @@ for a in "${@:3}"; do case "$a" in
   --token-budget=*) BUDGET="${a#*=}" ;;
   --tokens=*)       TOKENS="${a#*=}"; TOKENS_GIVEN=1 ;;
   --progress=*)     PROGRESS="${a#*=}" ;;
+  *) echo "unknown option: $a" >&2; exit 2 ;;
 esac; done
+
+number() { [[ "$1" =~ ^(0|[1-9][0-9]{0,11})$ ]]; }
+for n in "$TOKENS" "${MAXR:-3}" "${BUDGET:-200000}"; do
+  number "$n" || { echo "invalid nonnegative integer: $n" >&2; exit 2; }
+done
+[ "${MAXR:-3}" -gt 0 ] && [ "${BUDGET:-200000}" -gt 0 ] || { echo 'limits must be positive'; exit 2; }
+case "$PROGRESS" in yes|no) ;; *) echo 'progress must be yes or no'; exit 2 ;; esac
 
 ROUND=0; MR=3; TB=200000; TU=0; NP=0; UM=0
 load(){
@@ -29,6 +37,9 @@ load(){
       round) ROUND=$v ;; max_rounds) MR=$v ;; token_budget) TB=$v ;;
       tokens_used) TU=$v ;; no_progress) NP=$v ;; unmeasured) UM=$v ;;
     esac; done < "$STATE"
+    for n in "$ROUND" "$MR" "$TB" "$TU" "$NP" "$UM"; do
+      number "$n" || { echo 'invalid guard state' >&2; exit 2; }
+    done
   fi
 }
 save(){ printf 'round\t%s\nmax_rounds\t%s\ntoken_budget\t%s\ntokens_used\t%s\nno_progress\t%s\nunmeasured\t%s\n' \
@@ -47,8 +58,9 @@ case "$CMD" in
     if [ "$TOKENS_GIVEN" = "0" ]; then UM=$((UM+1)); fi
     if [ "$PROGRESS" = "no" ]; then NP=$((NP+1)); else NP=0; fi
     save
-    if   [ "$ROUND" -gt "$MR" ];  then echo "STOP:max-rounds (round=$ROUND > max=$MR)"
-    elif [ "$TU" -gt "$TB" ];     then echo "STOP:budget (used=$TU > budget=$TB)"
+    if   [ "$ROUND" -ge "$MR" ];  then echo "STOP:max-rounds (round=$ROUND >= max=$MR)"
+    elif [ "$TU" -ge "$TB" ];     then echo "STOP:budget (used=$TU >= budget=$TB)"
+    elif [ "$UM" -gt 0 ];         then echo "STOP:unmeasured (unmeasured=$UM/$ROUND-ticks)"
     elif [ "$NP" -ge 2 ];         then echo "STOP:no-progress (streak=$NP)"
     else                                echo "CONTINUE (round=$ROUND/$MR tokens=$TU/$TB noprog=$NP$(warn_unmeasured))"
     fi ;;

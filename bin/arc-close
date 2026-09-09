@@ -25,6 +25,9 @@ fi
 [ -d "$ARC_DIR" ] || { echo "arc dir not found: $ARC_DIR"; exit 1; }
 
 ARC_DIR="$(cd "$ARC_DIR" && pwd)"
+LOCK_PATH="$ARC_DIR/.close.lock"
+mkdir "$LOCK_PATH" 2>/dev/null || { echo 'close already in progress (or stale .close.lock; inspect before retry)'; exit 9; }
+trap 'rmdir "$LOCK_PATH" 2>/dev/null || true' EXIT
 ARC="$(basename "$ARC_DIR")"
 ARCS_DIR="$(cd "$ARC_DIR/.." && pwd)"
 ARCHIVE_DIR="$ARCS_DIR/_archive"
@@ -36,9 +39,8 @@ sed_inplace() { # sed_inplace <sed-expr> <file>
   sed "$1" "$2" > "$2.tmp" && mv "$2.tmp" "$2"
 }
 
-# thread status In-Progress → Closed
+# Do not mark a draft or refusal Closed. Commit status only after archiving.
 ARC_FILE="$ARC_DIR/ARC/${ARC}.md"
-[ -f "$ARC_FILE" ] && sed_inplace 's/^status: "In-Progress"/status: "Closed"/' "$ARC_FILE"
 
 # is this a KILL-type close? (stop=falsified or verdict mentions KILL)
 IS_KILL="no"
@@ -50,26 +52,15 @@ case "$VERDICT" in *KILL*|*kill*) IS_KILL="yes" ;; esac
 # the verbatim sealed kill-condition into the record instead of trusting an agent-typed field. The agent
 # is not the author of the condition, so it cannot be silently widened at close (post-hoc goalpost move).
 # NOTE: this fixes the *condition* by reference; whether the result triggers it remains a judgment.
-extract_kill() { # extract_kill <ledger> <claim_id> → verbatim kill_condition (whitespace-collapsed), else empty
-  [ -f "$1" ] || return 0
-  $PY - "$1" "$2" 2>/dev/null <<'PY'
-import json, sys
-led, cid = sys.argv[1], sys.argv[2]
-for line in open(led, encoding='utf-8', errors='ignore'):
-    line = line.strip()
-    if not line: continue
-    try: d = json.loads(line)
-    except Exception: continue
-    if d.get('claim_id') == cid and d.get('kill_condition'):
-        print(' '.join(str(d['kill_condition']).split())); break
-PY
-}
 PREREG="$ARC_DIR/.prereg"
 SEAL_CLAIM=""; SEAL_LEDGER=""; SEAL_KILL=""
-if [ -f "$PREREG" ]; then
-  SEAL_CLAIM="$(sed -n '1p' "$PREREG")"; SEAL_LEDGER="$(sed -n '2p' "$PREREG")"
-  SEAL_KILL="$(extract_kill "$SEAL_LEDGER" "$SEAL_CLAIM")"
-fi
+CHECKER="$(dirname "${BASH_SOURCE[0]}")/prereg_check.py"
+SEAL_BROKEN="no"
+if RESOLVED="$($PY "$CHECKER" resolve "$ARC_DIR")"; then
+  SEAL_CLAIM="$(printf '%s' "$RESOLVED" | sed -n '1p')"
+  SEAL_LEDGER="$(printf '%s' "$RESOLVED" | sed -n '2p')"
+  SEAL_KILL="$(printf '%s' "$RESOLVED" | sed -n '3p')"
+else SEAL_BROKEN="yes"; fi
 
 # ── An external anchor must not depend on a label the examinee writes ──────────────────
 # The defect: even when a sealed kill-condition existed, nothing was injected or checked
@@ -86,7 +77,6 @@ fi
 # while missing the closes that mattered, which never use the word at all.
 SEAL_GATE="no"; [ -n "$SEAL_KILL" ] && SEAL_GATE="yes"
 # A .prereg that no longer resolves is a silent way around the gate. Never pass it in silence.
-SEAL_BROKEN="no"; [ -f "$PREREG" ] && [ -z "$SEAL_KILL" ] && SEAL_BROKEN="yes"
 
 # ★2026-08-26 — the second key must be RECORDED, not only enforced.
 # Measured before this existed: a KILL close wrote "⚠️ UNSEALED …" into the _SUMMARY, but a GO
@@ -98,7 +88,7 @@ SEAL_BROKEN="no"; [ -f "$PREREG" ] && [ -z "$SEAL_KILL" ] && SEAL_BROKEN="yes"
 # so "closed with one key" cannot be quietly edited into "closed with two".
 seal_state_line() {
   if [ -n "$SEAL_KILL" ]; then
-    printf -- '- **Second key (pre-registration)**: sealed — claim `%s` in %s\n' "$SEAL_CLAIM" "$SEAL_LEDGER"
+    printf -- '- **Second key (pre-registration)**: sealed — claim `%s` in %s (hash-verified, first seal pinned; identity/time/truth unverified)\n' "$SEAL_CLAIM" "$SEAL_LEDGER"
   elif [ "$SEAL_BROKEN" = "yes" ]; then
     printf -- '- **Second key (pre-registration)**: BROKEN — `.prereg` names claim `%s` but it could not be read from %s\n' "$SEAL_CLAIM" "$SEAL_LEDGER"
   else
@@ -145,6 +135,7 @@ SUBSTANCE="$(dirname "${BASH_SOURCE[0]}")/substance_check.py"
 TAB="$(printf '\t')"   # NOTE: ${v%%\t*} is a literal `t` in shell patterns — this must be a real tab
 
 check_answers() { # check_answers <section start marker>
+  "$PY" "$(dirname "${BASH_SOURCE[0]}")/closure_check.py" "$SUMMARY" "$IS_KILL" "$SEAL_GATE" || exit 5
   # ★ The positive control runs at the HEAD OF THE GATE'S EXECUTION PATH, not in a test file.
   #   If the checker cannot separate planted violations from planted genuine answers, we do NOT
   #   interpret the real answers — we die. An instrument is not trusted because it is green;
@@ -185,9 +176,9 @@ SUMMARY="$ARC_DIR/_SUMMARY_${ARC}.md"
 # ── 1st run: draft only, stop (no seal) ──
 if [ ! -f "$SUMMARY" ]; then
   cat > "$SUMMARY" << MDEOF
-# 🏛️ Arc closed — ${ARC}
+# 🏛️ Arc close draft — ${ARC}
 
-- **Closed**: ${TODAY} (${TS_ISO})
+- **Drafted**: ${TODAY} (${TS_ISO})
 - **stop_reason**: ${STOP}   (falsified / no-progress / converged)
 - **Verdict**: ${VERDICT}
 $(seal_state_line)
@@ -206,6 +197,7 @@ $(seal_state_line)
 MDEOF
   if [ "$IS_KILL" = "yes" ]; then emit_kill_defense >> "$SUMMARY"
   elif [ "$SEAL_GATE" = "yes" ]; then emit_seal_check >> "$SUMMARY"; fi
+  [ ! -f "$ARC_FILE" ] || sed_inplace 's/^status: .*/status: "Close-Pending"/' "$ARC_FILE"
   echo "📝 _SUMMARY drafted (not sealed): $SUMMARY"
   if [ "$SEAL_GATE" = "yes" ]; then
     echo "   🔒 sealed kill-condition injected from seal $SEAL_CLAIM (not agent-authored)."
@@ -229,7 +221,7 @@ fi
 if [ "$SEAL_BROKEN" = "yes" ]; then
   echo "⛔ seal refused: .prereg is linked but its sealed kill-condition could not be read — anchor broken."
   echo "    claim=$SEAL_CLAIM · ledger=$SEAL_LEDGER"
-  echo "    Re-link with arc-prereg, or remove .prereg deliberately if there really is no seal (both are auditable acts)."
+    echo "    Restore the bound files. For a legacy link, explicitly re-link the same verified claim with arc-prereg."
   exit 5
 fi
 
@@ -275,6 +267,7 @@ fi
 #    keys were turned. Refuse and show both lines rather than sealing a summary that misreports it.
 # NB: `--` is load-bearing. The pattern starts with "- ", so without it grep parses the line as
 #     options and exits non-zero — which this gate would have read as "the record is wrong".
+"$PY" "$(dirname "${BASH_SOURCE[0]}")/closure_check.py" "$SUMMARY" --record "$VERDICT" "$STOP" || exit 8
 if ! grep -qxF -- "$(seal_state_line)" "$SUMMARY"; then
   echo "⛔ seal refused: the second-key line in _SUMMARY does not match this arc's actual seal state."
   echo "    in the file : $(grep -m1 -F -- '**Second key (pre-registration)**' "$SUMMARY" || echo '(the line is missing)')"
@@ -283,11 +276,16 @@ if ! grep -qxF -- "$(seal_state_line)" "$SUMMARY"; then
   exit 8
 fi
 
-echo "ARC_CLOSED ${TODAY} stop=${STOP} — ${VERDICT}" >> "$ARC_DIR/STATE.md"
-
 mkdir -p "$ARCHIVE_DIR"
+[ ! -e "$ARCHIVE_DIR/$ARC" ] || { echo "archive destination already exists — refusing overwrite"; exit 9; }
 mv "$ARC_DIR" "$ARCHIVE_DIR/"
+LOCK_PATH="$ARCHIVE_DIR/$ARC/.close.lock"
 SEALED="$ARCHIVE_DIR/$ARC/_SUMMARY_${ARC}.md"
+ARC_FILE="$ARCHIVE_DIR/$ARC/ARC/${ARC}.md"
+[ ! -f "$ARC_FILE" ] || sed_inplace 's/^status: .*/status: "Closed"/' "$ARC_FILE"
+sed_inplace 's/Arc close draft/Arc closed/' "$SEALED"
+printf '\n- **Closed**: %s (%s)\n' "$TODAY" "$TS_ISO" >> "$SEALED"
+echo "ARC_CLOSED ${TODAY} stop=${STOP} — ${VERDICT}" >> "$ARCHIVE_DIR/$ARC/STATE.md"
 
 # ── optional: seal into append-only ledger (best-effort; skips if `am` absent) ──
 # 🔴 say what was actually tested. The condition below is "is the `am` CLI on PATH",
@@ -297,15 +295,19 @@ SEALED="$ARCHIVE_DIR/$ARC/_SUMMARY_${ARC}.md"
 # NB: single-quoted on purpose — backticks inside double quotes are command substitution,
 #     which ran `am` and leaked its exit status into the close (caught by tests/test_gates.sh).
 SEAL_MSG='not sealed — file only (`am` CLI not on PATH; mirror-stack may still be installed)'
+RECORD_STATE="file-only"
 if command -v am >/dev/null 2>&1; then
   if am record --agent yeoul --action arc-close --target "$ARC" \
        --payload "{\"stop_reason\":\"${STOP}\"}" \
        --content-file "$SEALED" >/dev/null 2>&1; then
     SEAL_MSG="✅ sealed into ledger (content-hash = _SUMMARY → tamper-evident)"
+    RECORD_STATE="recorded"
   else
     SEAL_MSG="⚠️ am record failed (skipped)"
+    RECORD_STATE="record-failed"
   fi
 fi
+printf 'ARCHIVE_RECORD %s\n' "$RECORD_STATE" >> "$ARCHIVE_DIR/$ARC/STATE.md"
 
 # ── auto-growing knowledge index (hands-off; appends on close) ──
 [ -x "$(dirname "${BASH_SOURCE[0]}")/index-append" ] && \

@@ -1,55 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# install.sh — set up Yeoul together with its discipline primitive (mirror-stack).
-#   Yeoul is the practice layer; mirror-stack is the pre-registration + tamper-evident ledger it seals into.
-#   Installing both is recommended so sealing is real, not a no-op fallback.
-#
-# usage: setup/install.sh [--no-mirror-stack] [--print-config]
-#   --no-mirror-stack : skip installing mirror-stack (Yeoul runs; sealing degrades to no-op)
-#   --print-config    : just print the mcpServers block to merge into your MCP client config
-
+# Install the tested MCP combination. Requested installation failures are fatal.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 WITH_MIRROR=1; PRINT_ONLY=0
 for a in "$@"; do case "$a" in
   --no-mirror-stack) WITH_MIRROR=0 ;;
-  --print-config)    PRINT_ONLY=1 ;;
+  --print-config) PRINT_ONLY=1 ;;
+  *) echo "unknown option: $a" >&2; exit 2 ;;
 esac; done
-
 if [ "$PRINT_ONLY" -eq 1 ]; then
   cat "$SCRIPT_DIR/mcp-servers.json"
   exit 0
 fi
-
-echo "── Yeoul setup ──"
-echo "1) Yeoul CLI scripts: $REPO/bin  (add to PATH, or call by path)"
-echo "   e.g.  export PATH=\"$REPO/bin:\$PATH\""
-
+. "$REPO/bin/_pybin.sh"
+PY="$(yeoul_pybin)" || yeoul_pybin_die
+"$PY" -m pip --version >/dev/null
 if [ "$WITH_MIRROR" -eq 1 ]; then
-  echo "2) mirror-stack (discipline primitive: pre-registration + ledger)"
-  if command -v pip >/dev/null 2>&1; then
-    echo "   installing mirror-stack-mcp ..."
-    pip install "git+https://github.com/mirror-stack/mirror-stack-mcp" || {
-      echo "   ⚠️ pip install failed — install manually: pip install git+https://github.com/mirror-stack/mirror-stack-mcp"
-    }
-  else
-    echo "   ⚠️ pip not found. Install manually: pip install git+https://github.com/mirror-stack/mirror-stack-mcp"
-  fi
+  "$PY" -m pip install "git+https://github.com/mirror-stack/mirror-stack-mcp@v0.2.14"
 else
-  echo "2) mirror-stack: SKIPPED (--no-mirror-stack). Sealing will be a no-op fallback."
+  echo "Mirror installation skipped: discussion closes remain explicitly file-only without a recorder."
 fi
-
-echo "3) yeoul-mcp (gate-enforcing MCP tools over the bin/ scripts)"
-if command -v pip >/dev/null 2>&1; then
-  echo "   installing yeoul-mcp ..."
-  pip install "$REPO/mcp" || echo "   ⚠️ pip install failed — install manually: pip install $REPO/mcp"
-else
-  echo "   ⚠️ pip not found. Install manually: pip install $REPO/mcp"
-fi
-
-echo "4) MCP client config — merge this into your mcpServers (Claude Desktop/Code):"
-echo
-sed 's/^/     /' "$SCRIPT_DIR/mcp-servers.json"
-echo
-echo "   (If you skipped mirror-stack, remove its entry — Yeoul still runs without it.)"
-echo "── done ──"
+"$PY" -m pip install "$REPO/mcp"
+echo "Installed yeoul-mcp (bundled harness). Bash must be available on PATH."
+echo "For checkout CLI commands, add $REPO/bin to PATH."
+echo "Merge the following MCP configuration (omit mirror-stack if skipped):"
+cat "$SCRIPT_DIR/mcp-servers.json"

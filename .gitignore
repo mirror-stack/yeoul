@@ -5,3 +5,5 @@ projects/
 graduated/
 KNOWLEDGE_INDEX.md
 .venv/
+build/
+dist/
