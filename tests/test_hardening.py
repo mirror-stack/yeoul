@@ -152,8 +152,8 @@ class Hardening(unittest.TestCase):
     def test_verify_timeout(self):
         baseline = '- [x] bounded. verify: `sleep 5`\n'
         self.todo.write_text(baseline)
-        self.assertEqual(verify(self.todo, baseline=baseline, timeout=0.05, revert=True), 1)
-        self.assertIn('[ ] bounded', self.todo.read_text())
+        self.assertEqual(verify(self.todo, baseline=baseline, timeout=0.05, revert=True), 124)
+        self.assertEqual(self.todo.read_text(), baseline, 'interruption requires reconciliation')
 
     def test_malformed_and_empty_todos_are_ineligible(self):
         for text in ['', '# no items', '- [x] absent', '- [ ] missing. verify:',

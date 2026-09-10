@@ -50,6 +50,7 @@ warn_unmeasured(){ [ "$UM" -gt 0 ] && printf ' unmeasured=%s/%s-ticks' "$UM" "$R
 
 case "$CMD" in
   init)
+    [ ! -e "$STATE" ] || { echo 'guard already initialized; refusing to reset accumulated state' >&2; exit 2; }
     ROUND=0; MR="${MAXR:-3}"; TB="${BUDGET:-200000}"; TU=0; NP=0; UM=0; save
     echo "loop init: max_rounds=$MR token_budget=$TB" ;;
   tick)

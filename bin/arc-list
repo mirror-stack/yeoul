@@ -14,11 +14,15 @@ for arg in "$@"; do
     --all)     OPEN_ONLY=0 ;;
   esac
 done
-[ -z "$ROOTS" ] && ROOTS="$PROJECTS_DIR"
+if [ -z "$ROOTS" ]; then
+  SEARCH_ROOTS=("$PROJECTS_DIR")
+else
+  read -r -a SEARCH_ROOTS <<< "$ROOTS"
+fi
 
 field() { grep -m1 "^$1:" "$2" 2>/dev/null | sed "s/^$1:[[:space:]]*//; s/\"//g"; }
 
-for root in $ROOTS; do
+for root in "${SEARCH_ROOTS[@]}"; do
   [ -d "$root" ] || continue
   while IFS= read -r arcfile; do
     # 🔴 `--all` has to mean all. This skip used to run BEFORE the OPEN_ONLY test, so the flag

@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0] — 2026-09-10
+
+- Independent `yeoul` setup/new/status/doctor/connect/serve CLI with observe,
+  discuss and develop modes; Mirror installation is now explicit opt-in.
+- CLI/MCP task preparation, durable replay, workspace permissions and cooperative
+  cross-process locks. Three new workspace MCP tools; twelve business tools retained.
+- Operator-only audited recovery, retired interrupted IDs, reviewed and hash-pinned
+  verification baselines, config history and explicit external read-ledger grants.
+- Managed closures do not invoke an external action recorder. Separate product roots
+  are supported; no LaneStack dependency or cross-product transaction is implied.
+- Atomic arc directory allocation, no silent loop-state reset, and conservative
+  interrupted verification handling. Wheels/sdists bundle the changed harness.
+- See [workspace guide](docs/WORKSPACE_GUIDE.ko.md) and [runtime contract](docs/RUNTIME_CONTRACT.md).
+
 ## [0.3.0] — 2026-09-09
 
 ### Integrity contracts and compatibility changes

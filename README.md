@@ -13,29 +13,32 @@ with integrity gates that resist self-deception and premature closure.** It is t
 on top of a measurement-discipline primitive (pre-registration + a tamper-evident ledger): the
 primitive checks recorded evidence and integrity; Yeoul answers *"how do I run a disciplined idea loop end to end?"*
 
-> **v0.3.0: integrity-contract hardening.** See the [changelog](CHANGELOG.md) and
-> [trust boundaries, installation and migration guide](docs/INTEGRITY.md).
+> **v0.4.0: standalone workspace product.** Yeoul is independent of Mirror and LaneStack.
+> See the [workspace guide (Korean)](docs/WORKSPACE_GUIDE.ko.md),
+> [changelog](CHANGELOG.md) and [integrity boundaries](docs/INTEGRITY.md).
+
+For stdio MCP permissions, durable retries and cross-process locking, see the
+[runtime contract](docs/RUNTIME_CONTRACT.md). Managed mode is opt-in with
+`YEOUL_MCP_ROOT`; without it, the server is a trusted local runner without managed
+permission enforcement or cooperative concurrency controls.
 
 ## Install
 
 ```bash
-git clone https://github.com/mirror-stack/yeoul
-cd yeoul
-export PATH="$PWD/bin:$PATH"     # the CLI: yeoul-new, arc-open, arc-close, ralph, status, …
-setup/install.sh                 # installs mirror-stack (sealing primitive) + yeoul-mcp, prints MCP config
+pip install 'git+https://github.com/mirror-stack/yeoul@v0.4.0#subdirectory=mcp'
+yeoul setup ./my-discussions --mode discuss
+yeoul new example --workspace ./my-discussions
+yeoul doctor --workspace ./my-discussions
+yeoul connect --workspace ./my-discussions
 ```
 
-Register both MCP servers with your client (Claude Desktop/Code — merge `setup/mcp-servers.json`):
-
-```json
-{ "mcpServers": {
-    "mirror-stack": { "command": "mirror-stack-mcp" },
-    "yeoul":        { "command": "yeoul-mcp" }
-} }
-```
-
-mirror-stack is optional — without a recorder, discussion closes are explicitly file-only
-(`setup/install.sh --no-mirror-stack`).
+Add the configuration printed by `yeoul connect` to your MCP client. No existing
+client config is modified. Python 3.10+ and Bash (Git Bash on Windows) are required.
+The checkout installer `setup/install.sh` also installs Yeoul alone;
+`--with-mirror-stack` explicitly adds the independent Mirror product.
+Linked ledgers may live in separate roots. Managed closures remain file-only and
+do not invoke an external recorder. Raw checkout commands remain advanced,
+trusted-local interfaces outside the managed product CLI/MCP lock.
 
 ## Quickstart
 

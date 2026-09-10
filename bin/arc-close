@@ -296,7 +296,9 @@ echo "ARC_CLOSED ${TODAY} stop=${STOP} — ${VERDICT}" >> "$ARCHIVE_DIR/$ARC/STA
 #     which ran `am` and leaked its exit status into the close (caught by tests/test_gates.sh).
 SEAL_MSG='not sealed — file only (`am` CLI not on PATH; mirror-stack may still be installed)'
 RECORD_STATE="file-only"
-if command -v am >/dev/null 2>&1; then
+if [ "${YEOUL_MCP_MANAGED:-0}" = "1" ]; then
+  SEAL_MSG='not sealed — managed MCP disables external am recording; file only'
+elif command -v am >/dev/null 2>&1; then
   if am record --agent yeoul --action arc-close --target "$ARC" \
        --payload "{\"stop_reason\":\"${STOP}\"}" \
        --content-file "$SEALED" >/dev/null 2>&1; then
