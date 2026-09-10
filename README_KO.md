@@ -12,29 +12,27 @@
 돌리는 파일 기반 하네스입니다.** 측정 규율 프리미티브(사전등록 + 변조 감지 원장) 위에 얹힌 *실천 계층*이에요 —
 프리미티브는 기록된 증거의 무결성을 확인하고, Yeoul은 *"규율 있는 아이디어 루프를 처음부터 끝까지 어떻게 돌리나?"*에 답합니다.
 
-> **v0.3.0: 무결성 계약 보완.** [변경 기록](CHANGELOG.md)과
-> [검증 범위·설치·기존 아크 마이그레이션 안내](docs/INTEGRITY.md)를 확인하세요.
+> **v0.4.0: 독립 제품의 간편 설정·실행·복구.** 거울과 레인스택 없이 사용할 수 있습니다.
+> [간편 사용 안내](docs/WORKSPACE_GUIDE.ko.md), [변경 기록](CHANGELOG.md),
+> [검증 범위·기존 아크 안내](docs/INTEGRITY.md)를 확인하세요.
 
 ## 설치
 
 ```bash
-git clone https://github.com/mirror-stack/yeoul
-cd yeoul
-export PATH="$PWD/bin:$PATH"     # CLI: yeoul-new, arc-open, arc-close, ralph, status, …
-setup/install.sh                 # mirror-stack(봉인 프리미티브) + yeoul-mcp 설치 + MCP 설정 출력
+pip install 'git+https://github.com/mirror-stack/yeoul@v0.4.0#subdirectory=mcp'
+yeoul setup ./my-discussions --mode discuss
+yeoul new example --workspace ./my-discussions
+yeoul doctor --workspace ./my-discussions
+yeoul connect --workspace ./my-discussions
 ```
 
-두 MCP 서버를 클라이언트에 등록(Claude Desktop/Code — `setup/mcp-servers.json` 병합):
-
-```json
-{ "mcpServers": {
-    "mirror-stack": { "command": "mirror-stack-mcp" },
-    "yeoul":        { "command": "yeoul-mcp" }
-} }
-```
-
-mirror-stack은 선택입니다 — 기록기가 없으면 토론 종결은 파일 전용으로 명시됩니다
-(`setup/install.sh --no-mirror-stack`).
+`yeoul connect`가 출력한 서버 항목을 사용 중인 MCP 클라이언트에 추가하세요.
+기존 설정은 자동 수정하지 않습니다. Python 3.10+와 Bash(Windows: Git Bash)가 필요합니다.
+소스 설치의 `setup/install.sh`도 여울만 설치하며,
+`--with-mirror-stack`을 선택해야 거울을 함께 설치합니다.
+원장은 별도 폴더에 두고 파일별 읽기 권한으로 연결할 수 있습니다.
+관리 모드 종결은 외부 기록기를 실행하지 않습니다. 기존 원시 CLI·스크립트는
+고급 로컬 인터페이스이며 제품 CLI/MCP의 공통 잠금 밖에 있습니다.
 
 ## 빠른 시작
 

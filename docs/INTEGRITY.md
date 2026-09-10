@@ -80,6 +80,17 @@ baseline path is `TODO.md.verify-baseline.json`; creating an existing baseline i
 refused. Baseline approval is a supervisor action, not an automatic MCP tool.
 Criteria changes require explicit review and a new baseline path.
 
+Ordinary failed verification commands revert their checked boxes when `--revert`
+is enabled. An interrupted or timed-out command instead makes `verify-gate`
+return **124**, stops later commands, and leaves the TODO unchanged for
+reconciliation. A surviving checked box is **not evidence of successful
+verification**. Inspect partial command effects and surviving children before
+resuming; managed MCP leaves the operation pending and refuses automatic retry.
+See the [stdio runtime contract](RUNTIME_CONTRACT.md) for managed permissions,
+approved baseline locations, receipt recovery and concurrency limits. The baseline
+paths above describe direct CLI/trusted usage; managed MCP requires its configured
+baseline under `YEOUL_MCP_ROOT/.yeoul-approved/`.
+
 Keep the standalone baseline and verification implementations outside the worker's
 write permissions. A directory name alone does not enforce that boundary.
 `--current-only` is an explicit manual diagnostic that prints its weaker scope;

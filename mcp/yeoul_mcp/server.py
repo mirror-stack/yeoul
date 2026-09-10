@@ -40,6 +40,9 @@ except ImportError:  # executed as a bare file: the package's parent isn't on sy
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from yeoul_mcp import __version__
 mcp._mcp_server.version = __version__
+from yeoul_mcp.runtime import CONTEXT, boundary
+
+RUN_TIMEOUT = 120
 
 _BUNDLED = Path(__file__).resolve().parent / "_harness" / "bin"
 BIN = Path(os.environ.get("YEOUL_BIN", _BUNDLED if _BUNDLED.is_dir()
@@ -86,18 +89,20 @@ def _run(script: str, *args: str, cwd: str | None = None, stdin: str | None = No
     # 🔴 encoding: pin UTF-8. The gate strips a `←` hint before judging an answer; under a
     #    non-UTF-8 default (CP949) the strip fails and a trivial "yes" arrives long enough to
     #    clear the substance checks. That is a gate-integrity bug, not a display bug.
-    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    policy = CONTEXT.get()
+    env = {**(policy.env if policy else os.environ), "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     if not script.endswith('.py'):
         env['YEOUL_BASH'] = interp[0]
     try:
         with subprocess.Popen(
-            cmd, cwd=cwd or os.getcwd(),
+            cmd, cwd=cwd or (str(policy.cwd) if policy else os.getcwd()),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", env=env, start_new_session=os.name == "posix",
         ) as child:
             try:
-                stdout, stderr = child.communicate(input=stdin if stdin is not None else "", timeout=120)
-                return {"exit_code": child.returncode, "stdout": stdout, "stderr": stderr}
+                stdout, stderr = child.communicate(input=stdin if stdin is not None else "", timeout=RUN_TIMEOUT)
+                return {"exit_code": child.returncode, "stdout": stdout[:65536], "stderr": stderr[:65536],
+                        **({"output_truncated": True} if len(stdout) > 65536 or len(stderr) > 65536 else {})}
             except subprocess.TimeoutExpired:
                 if os.name == "posix":
                     try:
@@ -106,15 +111,22 @@ def _run(script: str, *args: str, cwd: str | None = None, stdin: str | None = No
                         pass
                 else:
                     child.kill()
-                child.communicate()
+                try:
+                    child.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # Descendants may retain the pipes (especially on Windows). Do not wait forever.
+                    child.stdout.close()
+                    child.stderr.close()
                 return {"exit_code": 124, "stdout": "", "stderr": "timeout"}
     except (OSError, UnicodeError) as exc:
         return {"exit_code": 127, "stdout": "", "stderr": str(exc)}
 
 
 @mcp.tool()
+@boundary(mutating=True)
 def yeoul_new(name: str, topic: str = "", roles: str = "analysis impl repro",
-              backend: str = "both", no_arc: bool = False, workspace: str = ".") -> dict:
+              backend: str = "both", no_arc: bool = False, workspace: str = ".",
+              operation_id: str | None = None) -> dict:
     """Scaffold a project (design/ + dev/ + spec) and open a deliberation arc. Set no_arc to scaffold only."""
     args = [name]
     if topic:
@@ -126,8 +138,10 @@ def yeoul_new(name: str, topic: str = "", roles: str = "analysis impl repro",
 
 
 @mcp.tool()
+@boundary(mutating=True)
 def arc_open(slug: str, arcs_dir: str, topic: str = "", roles: str = "analysis impl repro",
-             backend: str = "both", relay: str = "orchestrator", workspace: str = ".") -> dict:
+             backend: str = "both", relay: str = "orchestrator", workspace: str = ".",
+             operation_id: str | None = None) -> dict:
     """Open a deliberation arc directly under arcs_dir (thread + ticket inboxes + roster + join prompts)."""
     args = [slug, f"--arcs-dir={arcs_dir}", f"--roles={roles}", f"--backend={backend}", f"--relay={relay}"]
     if topic:
@@ -136,13 +150,17 @@ def arc_open(slug: str, arcs_dir: str, topic: str = "", roles: str = "analysis i
 
 
 @mcp.tool()
-def arc_ticket(arc_dir: str, role: str, slug: str, body: str, ref: str = "") -> dict:
+@boundary(mutating=True)
+def arc_ticket(arc_dir: str, role: str, slug: str, body: str, ref: str = "",
+               operation_id: str | None = None) -> dict:
     """Issue a relay ticket to a role's inbox (deliberation rules baked in). Relay-only."""
     return _run("arc-ticket", arc_dir, role, slug, ref, stdin=body)
 
 
 @mcp.tool()
-def loop_guard_tick(arc_dir: str, tokens: int | None = None, progress: bool = True) -> dict:
+@boundary(mutating=True)
+def loop_guard_tick(arc_dir: str, tokens: int | None = None, progress: bool = True,
+                    operation_id: str | None = None) -> dict:
     """Tick the runaway guard for a round. Returns CONTINUE or STOP:max-rounds/budget/no-progress."""
     args = [arc_dir, "tick", f"--progress={'yes' if progress else 'no'}"]
     if tokens is not None:
@@ -151,14 +169,18 @@ def loop_guard_tick(arc_dir: str, tokens: int | None = None, progress: bool = Tr
 
 
 @mcp.tool()
-def loop_guard_init(arc_dir: str, max_rounds: int = 3, token_budget: int = 200000) -> dict:
+@boundary(mutating=True)
+def loop_guard_init(arc_dir: str, max_rounds: int = 3, token_budget: int = 200000,
+                    operation_id: str | None = None) -> dict:
     """Initialize the runaway guard (max rounds / token budget) for a loop."""
     return _run("loop-guard", arc_dir, "init",
                 f"--max-rounds={max_rounds}", f"--token-budget={token_budget}")
 
 
 @mcp.tool()
-def arc_close(arc_dir: str, verdict: str, stop: str = "converged") -> dict:
+@boundary(mutating=True)
+def arc_close(arc_dir: str, verdict: str, stop: str = "converged",
+              operation_id: str | None = None) -> dict:
     """Close an arc (2-phase, GATE-ENFORCED). 1st call drafts _SUMMARY; fill the blanks, then call again to seal.
     Extra sections are required depending on the close: a KILL close (stop=falsified, or KILL in the verdict) gets
     the 🛡️ 5-check; ANY close on an arc with a linked prereg seal gets the 🔒 sealed-condition cross-check —
@@ -169,19 +191,23 @@ def arc_close(arc_dir: str, verdict: str, stop: str = "converged") -> dict:
 
 
 @mcp.tool()
-def build_handoff(name: str, workspace: str = ".") -> dict:
+@boundary(mutating=True)
+def build_handoff(name: str, workspace: str = ".", operation_id: str | None = None) -> dict:
     """Generate a dev skeleton, NOT authorization to build. Missing/negative verdicts remain manual gates."""
     return _run("build-handoff", name, cwd=workspace)
 
 
 @mcp.tool()
+@boundary()
 def ralph_gate_check(name: str, workspace: str = ".") -> dict:
     """Read-only eligibility check of ALL items, using the real CLI parser. No loop or verification runs."""
     return _run("ralph", name, "--check", cwd=workspace)
 
 
 @mcp.tool()
-def arc_prereg(arc_dir: str, claim_id: str, ledger: str = "", workspace: str = ".") -> dict:
+@boundary(mutating=True)
+def arc_prereg(arc_dir: str, claim_id: str, ledger: str = "", workspace: str = ".",
+               operation_id: str | None = None) -> dict:
     """Link a sealed pre-registration to an arc so arc_close injects its kill-condition VERBATIM instead of
     trusting an agent-typed field. Seal the claim first (mirror-stack). Without this, closes are UNSEALED."""
     args = [arc_dir, claim_id] + ([ledger] if ledger else [])
@@ -189,8 +215,10 @@ def arc_prereg(arc_dir: str, claim_id: str, ledger: str = "", workspace: str = "
 
 
 @mcp.tool()
+@boundary(mutating=True)
 def verify_gate(todo_path: str, revert: bool = True, require_verify: bool = True,
-                workspace: str = ".", baseline_path: str = "") -> dict:
+                workspace: str = ".", baseline_path: str = "",
+                operation_id: str | None = None) -> dict:
     """Re-run the `verify:` command of every checked TODO item and revert the boxes that do not pass. This is
     the harness half of the dev loop — backend A (in-session) MUST call it each round, or nothing has been
     verified but the agent's word. Requires a supervisor-created baseline (default TODO.verify-baseline.json).
@@ -202,18 +230,46 @@ def verify_gate(todo_path: str, revert: bool = True, require_verify: bool = True
 
 
 @mcp.tool()
+@boundary()
 def status(workspace: str = ".", md: bool = False) -> dict:
     """One line per active project: name · latest arc verdict · dev TODO progress."""
     return _run("status", *(["--md"] if md else []), cwd=workspace)
 
 
 @mcp.tool()
+@boundary()
 def arc_list(workspace: str = ".", show_all: bool = False) -> dict:
     """List deliberation arcs (default: open/In-Progress only)."""
     return _run("arc-list", *(["--all"] if show_all else []), cwd=workspace)
 
 
+
+@mcp.tool()
+def workspace_prepare(tool: str, arguments: dict) -> dict:
+    """Prepare a durable task WITHOUT executing it. Retain task_id before execute.
+    Reuse the same task_id after a lost execute response; never create a new task
+    to bypass an interrupted operation. Product modes still restrict permissions."""
+    from .product import workspace, root
+    return workspace.prepare(root(), tool, arguments)
+
+
+@mcp.tool()
+def workspace_execute(task_id: str) -> dict:
+    """Execute one prepared task, or replay its recorded response. No recovery or elevation."""
+    from .product import workspace, root
+    return workspace.execute(root(), task_id)
+
+
+@mcp.tool()
+def workspace_tasks() -> dict:
+    """Inspect task receipts, without executing business work or clearing pending state."""
+    from .product import workspace, root
+    return workspace.tasks(root())
+
 def main():
+    if 'YEOUL_MCP_ROOT' not in os.environ:
+        print('WARNING: Yeoul MCP trusted local mode: no managed path/permission boundary; '
+              'configure YEOUL_MCP_ROOT for managed mode. See docs/RUNTIME_CONTRACT.md.', file=sys.stderr)
     mcp.run()
 
 

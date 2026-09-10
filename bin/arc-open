@@ -49,7 +49,14 @@ TS_ISO=$(date -Iseconds 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S")
 TODAY=$(date +%Y-%m-%d)
 ARC="${TS}_${SLUG}"
 ARC_DIR="$ARCS_DIR/$ARC"
-mkdir -p "$ARC_DIR/ARC"
+# Reserve a unique directory atomically. Same-second calls must never overwrite an arc.
+mkdir -p "$ARCS_DIR"
+if ! mkdir "$ARC_DIR" 2>/dev/null; then
+  [ -e "$ARC_DIR" ] || { echo 'cannot create arc directory' >&2; exit 1; }
+  ARC_DIR="$(mktemp -d "$ARCS_DIR/${TS}_${SLUG}.XXXXXX")"
+  ARC="$(basename "$ARC_DIR")"
+fi
+mkdir "$ARC_DIR/ARC"
 for r in $ROLES; do mkdir -p "$ARC_DIR/tickets/$r"; done
 
 # ── role assignment ledger (relay = auto-assigned to creator, work roles = unassigned) ──

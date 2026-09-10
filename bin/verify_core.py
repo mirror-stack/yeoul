@@ -74,6 +74,9 @@ def verify(todo, *, baseline=None, revert=False, require=False, timeout=120):
         command = VERIFY.search(line)
         if item and item[1] == 'x' and (command or require):
             rc = execute([os.environ.get('YEOUL_BASH', 'bash'), '-c', command[1]], timeout=timeout) if command else 1
+            if rc == 124 or rc < 0:
+                print('verification interrupted; reconciliation required', file=sys.stderr)
+                return 124
             if rc:
                 print(f'verify failed (exit {rc}): {line.strip()}', file=sys.stderr)
                 failed = True
