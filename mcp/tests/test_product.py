@@ -165,11 +165,12 @@ class ProductContract(unittest.TestCase):
         self.assertEqual(ledger.read_bytes(), original)
 
     def test_cli_outside_launch_directory(self):
-        env = dict(os.environ, PYTHONPATH=SOURCE, PYTHONDONTWRITEBYTECODE="1")
+        env = dict(os.environ, PYTHONPATH=SOURCE, PYTHONDONTWRITEBYTECODE="1",
+                   PYTHONIOENCODING="ascii")
         def cli(*args):
             return subprocess.run([sys.executable, "-B", "-m", PACKAGE + ".product", *args,
                                    "--workspace", str(self.root)], cwd=self.base, env=env,
-                                  text=True, capture_output=True, timeout=30)
+                                  text=True, encoding="utf-8", capture_output=True, timeout=30)
         self.assertEqual(cli("doctor").returncode, 0)
         result = cli("run", TOOL, "--arguments", json.dumps(ARGUMENTS), "--yes")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -179,6 +180,37 @@ class ProductContract(unittest.TestCase):
         self.assertEqual(repeated.returncode, 0, repeated.stderr)
         self.assertEqual(json.loads(result.stdout), json.loads(repeated.stdout))
 
+
+    def test_separate_root_ledger_binds_arc_without_mirror_installation(self):
+        ledger = self.base / "producer" / "claims.jsonl"
+        ledger.parent.mkdir()
+        row = {"prev_seal": "genesis", "claim_id": "separate", "metric": "accuracy",
+               "kill_condition": "Accuracy remains below 0.6 across three independent seeds"}
+        row["seal"] = hashlib.sha256(json.dumps(row, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        ledger.write_text(json.dumps(row) + "\n")
+        original = ledger.read_bytes()
+        arc = self.root / "arc"
+        arc.mkdir()
+        (arc / "0001_spec.md").write_text(
+            "- **Goal**: Measure classification accuracy across three independent seeds\n"
+            "- **Success condition**: Accuracy exceeds the preregistered threshold in every seed\n"
+            "- **Kill-condition**: Accuracy remains below the threshold across independent seeds\n"
+            "- **Constraints**: Use held-out data with fixed sample size and no training overlap\n")
+        workspace.link(self.root, ledger)
+        with workspace.activated(self.root):
+            task = server.workspace_prepare("arc_prereg", {"arc_dir": "arc", "claim_id": "separate",
+                                                           "ledger": str(ledger)})
+            got = server.workspace_execute(task["task_id"])
+            self.assertEqual(got["result"]["exit_code"], 0, got)
+            self.assertTrue((arc / ".prereg").is_file())
+            self.assertIn(str(ledger), (arc / ".prereg").read_text())
+            self.assertEqual(ledger.read_bytes(), original)
+            self.assertEqual(got, server.workspace_execute(task["task_id"]))
+        workspace.link(self.root, ledger, remove=True)
+        with workspace.activated(self.root):
+            got = server.arc_close("arc", "GO", operation_id="revoked")
+            self.assertNotEqual(got["exit_code"], 0)
+            self.assertEqual(ledger.read_bytes(), original)
 
     def test_approval_pins_baseline_and_mode_change_revokes(self):
         workspace.configure(self.root, "develop")
