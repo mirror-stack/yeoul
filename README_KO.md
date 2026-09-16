@@ -18,6 +18,31 @@
 
 ## 설치
 
+개발 중인 미배포 변경에는 [준비 작업 최신성·엄격 모드](docs/PREPARED_FRESHNESS.md)와
+[읽기 전용 Active Context 실험](docs/CONTEXT_SHADOW.md)이 있습니다.
+아래 v0.4.0 설치 명령으로 이 변경까지 설치되는 것은 아닙니다.
+별도 [세션 상태 관리](docs/SESSION_CONTEXT.md),
+[상태 추출·검토](docs/SESSION_EXTRACTION.md),
+[제한된 실행 연결](docs/SESSION_RUNNER.md)도 미배포 실험 기능입니다.
+안정적인 자동 장기 문맥 관리나 토큰 절감이 입증된 기능은 아닙니다.
+로컬 검사 통과와 실제 모델의 의미 해석·필요한 원문 조회·운영 준비 완료를
+구분해야 하며, 호스트 검토와 연결 작업이 필요합니다.
+모델 없이 최소 흐름을 확인하려면
+`python examples/session_context_demo.py`를 실행하세요. 임시 DB에서
+명시적 호스트 검토 후 제한된 `REPLACE_CONTEXT` 입력을 만드는 예제입니다.
+여울은 작업의 진행을 관리하고, 거울 등 외부 도구의 검증 결과를 받는
+[검토 판단 기능](docs/VERIFIED_TASKS.md)은 아직 운영 흐름과 분리된 실험 기능입니다.
+두 기능을 연결한 [읽기 전용 시험 흐름](docs/SHADOW_WORKFLOW.md)은 별도의 가상 작업공간에서
+검증했습니다. 실제 모델·거울 서버·운영 쓰기 경로를 연결한 결과는 아닙니다.
+별도 [호스트 검토→준비 작업 실행 연결](docs/REVIEWED_EXECUTION.md)을 추가했습니다.
+임시 업무 쓰기 시험 단계이며, 실제 검증 제공자 인증·운영 적용은 아직 남아 있습니다.
+[독립 로컬 호스트 연결](docs/LOCAL_HOST.md)은 현행 원천→제안→준비 작업→최신 검증·승인을
+묶습니다. 모델·제공자는 호스트가 지정하며, 운영 설정을 자동으로 활성화하지 않습니다.
+[선택형 격리 실행 어댑터](docs/ISOLATED_WORKER.md)는 자원 제한과 실행 이력을
+검토 흐름에 연결합니다. 신뢰하는 호스트 실행기가 필요하며 기본 설치에서 자동 활성화되지 않습니다.
+[호스트 실행 이력·허용 요청 처리](docs/HOST_WORKER.md)는 결과 보존과 재시작 조회,
+같은 실행 ID의 중복 전달 방지를 제공합니다. 운영 인증·설정 연결은 아직 별도 작업입니다.
+
 ```bash
 pip install 'git+https://github.com/mirror-stack/yeoul@v0.4.0#subdirectory=mcp'
 yeoul setup ./my-discussions --mode discuss

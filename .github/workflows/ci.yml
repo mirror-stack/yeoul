@@ -19,6 +19,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Prepare declared runtime dependencies for host integration tests
+        # Host composition and offline wheel regressions import FastMCP too.
+        # Keep Mirror optional; this job must pass without installing it.
+        run: python -m pip install ./mcp
       - name: Lint — every bash script parses
         run: |
           for f in bin/* setup/*.sh examples/*.sh tests/*.sh; do
@@ -30,10 +34,81 @@ jobs:
         run: bash tests/test_gates.sh
       - name: Adversarial integrity and bounded-loop contracts
         run: python tests/test_hardening.py
+      - name: Read-only context shadow contracts
+        run: python mcp/tests/test_context_shadow.py
+      - name: Persistent session state and bounded replacement context (no model calls)
+        env:
+          PRODUCT_TEST_INSTALLED: "1"
+        run: python mcp/tests/test_session_context.py
+      - name: Session extraction and explicit review contracts (no model calls)
+        env:
+          PRODUCT_TEST_INSTALLED: "1"
+        run: python mcp/tests/test_session_extraction.py
+      - name: Session replacement and retrieval process bridge (no model calls)
+        env:
+          PRODUCT_TEST_INSTALLED: "1"
+        run: python mcp/tests/test_session_runner.py
+      - name: Minimal opt-in session example (no model calls)
+        env:
+          PRODUCT_TEST_INSTALLED: "1"
+        run: python examples/session_context_demo.py
+      - name: Synthetic canary fixtures and grading controls (no model calls)
+        run: python mcp/tests/test_context_canary.py
+      - name: Prospective comparison design controls (no model calls)
+        run: python mcp/tests/test_comparison_design.py
+      - name: Prospective comparison transcript grading (no model calls)
+        run: python mcp/tests/test_comparison_grading.py
+      - name: Prospective comparison accounting (no model calls)
+        run: python mcp/tests/test_comparison_results.py
+      - name: Prospective comparison record preservation (no model calls)
+        run: python mcp/tests/test_comparison_journal.py
+      - name: Example verification adapter contracts (no model calls)
+        run: python mcp/tests/test_verified_task.py
+      - name: Provider-neutral review routing contracts
+        run: python mcp/tests/test_review_decision.py
+      - name: File-backed read-only shadow workflow
+        run: python mcp/tests/test_shadow_workflow.py
+      - name: Host-selected current source files and bounded retrieval
+        run: python mcp/tests/test_file_sources.py
+      - name: Independent local host composition (synthetic, no model calls)
+        run: python mcp/tests/test_local_host.py
+      - name: Bounded local verifier protocol (synthetic, no external services)
+        run: python mcp/tests/test_command_provider.py
+      - name: Bounded worker transport (Linux only; other platforms skip)
+        run: python mcp/tests/test_worker_transport.py
+      - name: Bounded duplex JSONL (synthetic, no model calls)
+        run: python mcp/tests/test_jsonl_transport.py
+      - name: Bounded candidate file collection (Linux only; other platforms skip)
+        run: python mcp/tests/test_candidate_input.py
+      - name: Host isolated worker contracts (privileged integration disabled by default)
+        run: python mcp/tests/test_isolated_worker.py
+      - name: Durable worker journal and host request allowlist
+        run: python mcp/tests/test_worker_host.py
+      - name: Logical worker task restart and authorization contracts
+        run: python mcp/tests/test_worker_tasks.py
+      - name: Linux local peer identity and task grants
+        run: python mcp/tests/test_worker_access.py
+      - name: Authorized read-only recovery view
+        run: python mcp/tests/test_recovery_view.py
+      - name: Account-bound recovery confirmation
+        run: python mcp/tests/test_recovery_actions.py
+      - name: Bounded metadata accounting and new-work admission
+        run: python mcp/tests/test_worker_storage.py
+      - name: Read-only existing evidence copy comparison
+        run: python mcp/tests/test_evidence_compare.py
+      - name: Recorded-model canary grading controls (no model calls)
+        run: python mcp/tests/test_shadow_model_canary.py
+      - name: Offline wheel harness parity
+        run: |
+          python -m pip install setuptools wheel
+          python mcp/tests/test_wheel_archive.py
+          python mcp/tests/test_distribution_contract.py
       - name: Worked example
         run: bash examples/demo.sh
       - name: Pre-publish gate (leaks / over-claim / worked example)
         run: bash setup/pre-publish-check.sh
+      - name: Publication candidate scan positive and negative controls
+        run: python tests/test_publish_gate.py
 
   # Build + import the MCP server in a clean env — catches "works in the repo, broken on install".
   #
@@ -47,13 +122,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            python: "3.10"
+          - os: ubuntu-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.12"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       - name: Install yeoul-mcp from source
         run: pip install ./mcp
       - name: Import the server + confirm the tool surface
@@ -83,8 +164,30 @@ jobs:
       - name: Independent product CLI, approvals, recovery and stdio reconnection
         # Standalone suite runs FIRST: Mirror must not be required to use Yeoul.
         run: python mcp/tests/test_product.py
+      - name: Installed portable session state and extraction (no model calls)
+        # This second matrix adds Windows; the unix matrix above adds macOS and
+        # also exercises the installed package rather than the checkout import.
+        env:
+          PRODUCT_TEST_INSTALLED: "1"
+        run: |
+          python mcp/tests/test_session_context.py
+          python mcp/tests/test_session_extraction.py
+      - name: Installed minimal session example (no model calls)
+        env:
+          PRODUCT_TEST_INSTALLED: "1"
+        run: python examples/session_context_demo.py
+      - name: Prepared target freshness and single execution
+        run: python mcp/tests/test_freshness.py
+      - name: Host reviewed prepared execution
+        run: python mcp/tests/test_reviewed_execution.py
+      - name: Reviewed execution across all mutating tools
+        run: python mcp/tests/test_reviewed_tools.py
+      - name: Reviewed process death and partial archive preservation
+        run: python mcp/tests/test_reviewed_crashes.py
       - name: Install optional Mirror contract for integration tests
         run: pip install "git+https://github.com/mirror-stack/mirror-stack-mcp@v0.2.14"
+      - name: Optional Mirror registration provider (synthetic snapshots only)
+        run: python mcp/tests/test_mirror_registration_provider.py
       - name: CLI/MCP parity and real Mirror result contract
         run: python mcp/tests/test_surface_contract.py
       - name: Installed harness works away from the checkout

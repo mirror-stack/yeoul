@@ -233,6 +233,13 @@ class ProductContract(unittest.TestCase):
             self.assertEqual(os.environ["YEOUL_MCP_ALLOW_EXEC"], "0")
 
     def test_product_stdio_reconnect_replays_task(self):
+        self._stdio_reconnect_contract()
+
+    def test_strict_stdio_blocks_direct_write_and_replays_prepared_task(self):
+        workspace.configure(self.root, MODE, 'prepared_only')
+        self._stdio_reconnect_contract(strict=True)
+
+    def _stdio_reconnect_contract(self, strict=False):
         import asyncio
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
@@ -250,6 +257,10 @@ class ProductContract(unittest.TestCase):
                         names = {tool.name for tool in (await client.list_tools()).tools}
                         self.assertTrue({"workspace_prepare", "workspace_execute", "workspace_tasks"} <= names)
                         self.assertNotIn("workspace_recover", names)
+                        if strict:
+                            blocked = await client.call_tool(TOOL, dict(ARGUMENTS, operation_id='direct-new'))
+                            denied = json.loads(blocked.content[0].text)
+                            self.assertEqual(denied['runtime_status'], 'preparation_required')
                         if task_id is None:
                             reply = await client.call_tool("workspace_prepare", {"tool": TOOL, "arguments": ARGUMENTS})
                             self.assertFalse(reply.isError, reply)
