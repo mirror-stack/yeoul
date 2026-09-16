@@ -17,6 +17,34 @@ primitive checks recorded evidence and integrity; Yeoul answers *"how do I run a
 > See the [workspace guide (Korean)](docs/WORKSPACE_GUIDE.ko.md),
 > [changelog](CHANGELOG.md) and [integrity boundaries](docs/INTEGRITY.md).
 
+Experimental, opt-in development API: [read-only worker context shadow](docs/CONTEXT_SHADOW.md).
+These changes are unreleased source work, not included by the v0.4.0 install command below.
+It does not activate a loader, call a model, grant permissions or commit state.
+Separate opt-in [session state](docs/SESSION_CONTEXT.md),
+[extraction review](docs/SESSION_EXTRACTION.md) and
+[bounded session transport](docs/SESSION_RUNNER.md) APIs are also unreleased.
+They are not validated automatic long-session memory or demonstrated token savings.
+Local contract tests do not establish model interpretation, retrieval behavior or
+operating readiness; host review and integration are still required.
+For a small no-model walkthrough from a source checkout, run
+`python examples/session_context_demo.py`; it uses a temporary database
+and shows explicit host review followed by a bounded `REPLACE_CONTEXT` packet.
+The experimental [review-routing contract](docs/VERIFIED_TASKS.md#yeoul-review-routing-contract)
+consumes host-supplied verification reports; it does not replace Mirror or authenticate evidence.
+New managed prepared writes also check [target freshness](docs/PREPARED_FRESHNESS.md)
+before execution; legacy and low-level compatibility boundaries are documented there.
+An opt-in [host review bridge](docs/REVIEWED_EXECUTION.md) binds prepared writes to
+fresh host reports and explicit approval; production integration remains unfinished.
+The [independent local host API](docs/LOCAL_HOST.md) composes current files, shadow
+review, persisted preparation and fresh approval without a default model or provider.
+An opt-in [isolated worker adapter](docs/ISOLATED_WORKER.md) connects fixed resource
+limits and host lifecycle records to shadow review; it requires a trusted host broker.
+[Host journal/profile components](docs/HOST_WORKER.md) add durable event/output
+storage and one-dispatch reservations without installing an administrative service.
+Operators can opt into `--write-policy prepared_only` to require preparation for
+new managed writes. Existing profiles remain compatible; raw OS writes are outside
+this policy and already connected processes require a separately approved reconnect.
+
 For stdio MCP permissions, durable retries and cross-process locking, see the
 [runtime contract](docs/RUNTIME_CONTRACT.md). Managed mode is opt-in with
 `YEOUL_MCP_ROOT`; without it, the server is a trusted local runner without managed

@@ -3,7 +3,8 @@ set -uo pipefail
 # pre-publish-check.sh — the "not embarrassing" gate. Run before making the repo public.
 #   1) personalization leak scan (Korean persona / family / private paths / internal names)
 #   2) over-claim copy scan (marketing superlatives the discipline forbids)
-#   3) empty-scaffolding guard (a runnable worked example must exist)
+#   3) repository-local Markdown link targets exist and stay inside the repository
+#   4) empty-scaffolding guard (a runnable worked example must exist)
 # Exit 0 = clean · non-zero = issues found (do not publish yet).
 
 # Resolve the interpreter by running one — `command -v python3` also finds the Windows Store stub.
@@ -20,7 +21,8 @@ FAIL=0
 #    mean what it says gets ignored, which is worse than no guard.
 publishable_files() { # publishable_files [-z]
   if git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$REPO" ls-files ${1:+-z}
+    # Include non-ignored new candidates before staging; ignored runtime files stay excluded.
+    git -C "$REPO" ls-files --cached --others --exclude-standard ${1:+-z}
   else
     if [ "${1:-}" = "-z" ]; then (cd "$REPO" && find . -type f -not -path './.git/*' -print0)
     else (cd "$REPO" && find . -type f -not -path './.git/*'); fi
@@ -29,7 +31,7 @@ publishable_files() { # publishable_files [-z]
 
 echo "── 1) personalization leak scan ──"
 # Generic de-personalization checks (no internal codenames are enumerated here, so this file ships clean):
-#   (a) any Hangul — this repo is English-only, so any Korean text is a leak;
+#   (a) Hangul outside intentional localization sources;
 #   (b) private absolute paths (/home/... or /data/...) that must not ship.
 # Intentional localizations are allowed (README_KO.md, *.ko.md, docs/ko/); Hangul anywhere else is a leak.
 # Hangul detection via python (portable — GNU grep's -P is unavailable on macOS/BSD).
@@ -51,7 +53,13 @@ root = sys.argv[1]; h = re.compile('[\uac00-\ud7a3]')  # Hangul syllables (escap
 rels = [x.rstrip('\n') for x in open(sys.argv[2], encoding='utf-8') if x.strip()]
 if not rels: sys.exit('pre-publish: file list is empty - refusing to report clean')
 for rel in rels:
+    # `find` prefixes archive paths with `./`; Git does not. Normalize both so
+    # reviewed path-specific policy is identical in a checkout and source archive.
+    if rel.startswith('./'): rel = rel[2:]
     if rel.endswith(('_KO.md', '.ko.md')) or rel.startswith('ko/') or '/ko/' in rel: continue
+    # Reviewed bilingual recovery UI labels and their exact rendering assertion.
+    # This exemption applies only to Hangul; private paths are still scanned below.
+    if rel in ('mcp/yeoul_mcp/recovery_view.py', 'mcp/tests/test_recovery_view.py'): continue
     p = os.path.join(root, rel)
     try:
         if h.search(open(p, encoding='utf-8', errors='ignore').read()): print(p)
@@ -80,9 +88,18 @@ else
   echo "  ✓ clean"
 fi
 
+echo "── 3) local Markdown link scan ──"
+if LINK_ERRORS="$($PY "$REPO/setup/check_markdown_links.py" "$REPO" "$FILELIST")"; then
+  echo "  ✓ local targets exist"
+else
+  echo "$LINK_ERRORS" | sed 's/^/    /'
+  echo "  ✗ broken or escaping local Markdown link"
+  FAIL=1
+fi
+
 rm -f "$FILELIST"
 
-echo "── 3) empty-scaffolding guard ──"
+echo "── 4) empty-scaffolding guard ──"
 if [ -d "$REPO/examples" ] && [ -n "$(find "$REPO/examples" -type f 2>/dev/null | head -1)" ]; then
   echo "  ✓ examples/ present"
 else
@@ -93,7 +110,7 @@ fi
 
 echo
 if [ "$FAIL" -eq 0 ]; then
-  echo "✅ pre-publish check PASSED — no leaks, no over-claims, worked example present."
+  echo "✅ pre-publish check PASSED — no leaks, no over-claims, local links valid, worked example present."
 else
   echo "⛔ pre-publish check FAILED — resolve the above before publishing."
 fi
