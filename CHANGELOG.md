@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Reopen the host-allowlisted candidate root after a bounded read and refuse the
+  result if its pathname now identifies a different device, inode, mode or owner.
+  Keep the descriptor-anchored read and leaf checks; document that a final recheck
+  is not provenance or proof against a transient replace-and-restore attack.
+
 - Add a runnable, no-model SessionContext example using a temporary database.
   Demonstrate explicit host review, terminal-state retention and bounded
   `REPLACE_CONTEXT` delivery without enabling a loader or granting authority.

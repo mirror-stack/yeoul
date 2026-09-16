@@ -16,16 +16,21 @@ O_NOFOLLOW and O_DIRECTORY. The leaf must be a regular file with one link; it is
 opened with O_NOFOLLOW/O_NONBLOCK. Size is checked before reading and charged
 against actual bytes as they are read. Oversize output is refused, never truncated.
 Opened-file identity is compared before/after reading and against the final leaf
-entry. Descriptors are closed on success and exceptions.
+entry. The host-selected root pathname is reopened component-by-component after
+the read and must still identify the same device, inode, mode and owner as the
+directory that anchored traversal. Descriptors are closed on success and exceptions.
 
 ## What is and is not established
 
 - A returned bytes object cannot later be changed by rewriting the file. Use those
   exact bytes for proposal validation/binding, not a subsequent path reread.
-- Normal link aliases and leaf replacement during collection are refused. An open
-  directory anchors traversal even if its pathname changes. This is not proof of
-  the directory's continuing pathname identity or trusted origin; the host must
-  keep ownership of the output-root handle/lifecycle and confirm the expected root.
+- Normal link aliases, leaf replacement and a root pathname that names a different
+  directory at the final recheck are refused. The open directory anchors traversal
+  if its pathname changes, while the recheck prevents returning bytes when the
+  allowlisted name remains rebound at delivery.
+- A final identity recheck is not proof that a hostile actor never changed and then
+  restored the pathname during the read, nor proof of trusted origin. The host must
+  still own the output-root lifecycle and separately establish provenance.
 - Metadata consistency and link count are not provenance. Same-user hostile host
   mutation, privileged mount changes and file-origin laundering are not solved.
 - The deadline is checked between filesystem calls, not a hard timeout on blocked
@@ -39,5 +44,6 @@ entry. Descriptors are closed on success and exceptions.
 
 Tests: `python -B mcp/tests/test_candidate_input.py`. Includes path ambiguity,
 symlink components/leaf, hardlinks, FIFO, oversized/growing reads, leaf replacement,
-deadline rejection and immutable results. The optional isolation suite additionally
-collects a real namespace worker's candidate file; it does not publish it.
+root-path replacement, deadline rejection and immutable results. The optional
+isolation suite additionally collects a real namespace worker's candidate file;
+it does not publish it.

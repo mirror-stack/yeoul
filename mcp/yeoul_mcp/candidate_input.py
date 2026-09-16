@@ -44,6 +44,9 @@ def collect_candidate(root, relative_path, *, byte_limit=65536, timeout=5):
         return (info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
                 info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
+    def directory_identity(info):
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid)
+
     def regular(info):
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
             raise ValueError('candidate must be a regular non-aliased file')
@@ -54,7 +57,12 @@ def collect_candidate(root, relative_path, *, byte_limit=65536, timeout=5):
         parent = os.open('/', directory)
         handles.append(parent)
         parts = relative_path.split('/')
-        for part in (*root.parts[1:], *parts[:-1]):
+        for part in root.parts[1:]:
+            tick()
+            parent = os.open(part, directory, dir_fd=parent)
+            handles.append(parent)
+        root_identity = directory_identity(os.fstat(parent))
+        for part in parts[:-1]:
             tick()
             parent = os.open(part, directory, dir_fd=parent)
             handles.append(parent)
@@ -81,6 +89,19 @@ def collect_candidate(root, relative_path, *, byte_limit=65536, timeout=5):
         if (identity(opened) != identity(os.fstat(fd))
                 or identity(opened) != identity(os.stat(parts[-1], dir_fd=parent, follow_symlinks=False))):
             raise ValueError('candidate changed while reading')
+        # The opened directory safely anchors this read, but the host also needs
+        # to know that its allowlisted pathname still names that same boundary.
+        try:
+            current_root = os.open('/', directory)
+            handles.append(current_root)
+            for part in root.parts[1:]:
+                tick()
+                current_root = os.open(part, directory, dir_fd=current_root)
+                handles.append(current_root)
+            if directory_identity(os.fstat(current_root)) != root_identity:
+                raise ValueError('candidate root changed while reading')
+        except OSError:
+            raise ValueError('candidate root changed while reading') from None
         return bytes(data)
     finally:
         for fd in reversed(handles):
