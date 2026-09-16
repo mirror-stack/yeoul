@@ -111,16 +111,19 @@ def read_json(path):
         valid = valid and bool(re.fullmatch(r'[0-9a-f]{64}\.json', data['receipt']))
     else:
         required = {'version', 'operation_id', 'fingerprint', 'request', 'state'}
-        valid = valid and required <= data.keys() and data.keys() <= required | {'response'}
+        valid = valid and required <= data.keys() and data.keys() <= required | {'response', 'review_audit'}
         if valid:
-            valid = (type(data['version']) is int and data['version'] == 1
+            valid = (type(data['version']) is int and data['version'] in (1, 2)
                      and isinstance(data['operation_id'], str) and bool(_ID.fullmatch(data['operation_id']))
                      and isinstance(data['fingerprint'], str)
                      and isinstance(data['state'], str) and data['state'] in ('pending', 'complete')
                      and isinstance(data['request'], dict))
         if valid:
             request = data['request']
-            valid = (set(request) == {'version', 'tool', 'arguments', 'root', 'cwd', 'environment'}
+            if data['version'] == 2 and ('review_audit' not in data or 'review_digest' not in request):
+                raise Refusal('reviewed receipt is missing its audit binding')
+            fields = {'version', 'tool', 'arguments', 'root', 'cwd', 'environment'}
+            valid = (fields <= set(request) <= fields | {'precondition', 'review_digest'}
                      and type(request['version']) is int and request['version'] == 1
                      and isinstance(request['tool'], str) and request['tool'] in WRITE_TOOLS
                      and isinstance(request['arguments'], dict)
@@ -129,10 +132,21 @@ def read_json(path):
                      and all(isinstance(v, str) for v in request['environment'].values())
                      and request['arguments'].get('operation_id') == data['operation_id'])
             if valid:
+                if 'review_digest' in request:
+                    if ('precondition' not in request
+                            or not isinstance(request['review_digest'], str)
+                            or not re.fullmatch('[0-9a-f]{64}', request['review_digest'])):
+                        raise Refusal('invalid review binding in receipt')
+                if 'precondition' in request:
+                    from .freshness import check_shape
+                    check_shape(request['precondition'])
                 digest = hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False,
                                                    allow_nan=False).encode('utf-8')).hexdigest()
                 valid = (data['fingerprint'] == digest and path.name ==
                          hashlib.sha256(data['operation_id'].encode()).hexdigest() + '.json')
+                if valid and 'review_audit' in data:
+                    from .reviewed_execution import validate_audit
+                    validate_audit(path.parent, data['review_audit'], request)
         if valid and data['state'] == 'complete':
             response = data.get('response')
             valid = (isinstance(response, dict) and {'exit_code', 'stdout', 'stderr'} <= response.keys()
@@ -348,6 +362,11 @@ def boundary(*, mutating=False):
             checking_receipts = False
             try:
                 policy = Policy(values)
+                strict = policy.env.get('YEOUL_MCP_REQUIRE_PREPARED', '0')
+                if strict not in ('0', '1'):
+                    raise Refusal('YEOUL_MCP_REQUIRE_PREPARED must be 0 or 1')
+                if strict == '1' and not policy.managed:
+                    raise Refusal('prepared-only policy requires managed mode')
                 if mutating and policy.managed:
                     if policy.env.get('YEOUL_MCP_ALLOW_WRITE') != '1':
                         raise Refusal('YEOUL_MCP_ALLOW_WRITE=1 required')
@@ -371,12 +390,29 @@ def boundary(*, mutating=False):
                                environment={k: v for k, v in policy.env.items()
                                             if k.startswith('YEOUL_') and k not in
                                             ('YEOUL_MCP_ALLOW_WRITE', 'YEOUL_MCP_ALLOW_EXEC',
-                                             'YEOUL_MCP_WRITE_TOOLS')})
-                encoded = json.dumps(request, sort_keys=True, ensure_ascii=False, allow_nan=False).encode('utf-8')
-                if len(encoded) > 1024 * 1024:
-                    raise Refusal('operation arguments/context exceed 1 MiB')
-                fingerprint = hashlib.sha256(encoded).hexdigest()
+                                             'YEOUL_MCP_WRITE_TOOLS', 'YEOUL_MCP_REQUIRE_PREPARED')})
                 with workspace_lock(policy.root) as control:
+                    # Bind schema-2 prepared records here as well as through workspace.execute.
+                    # Direct calls reusing a prepared ID cannot discard its precondition.
+                    job_path = control / 'tasks' / (str(operation_id) + '.json')
+                    safe_components(job_path)
+                    if operation_id and job_path.exists():
+                        from .product import workspace
+                        job = workspace.load_job(policy.root, operation_id)
+                        prepared = signature.bind(**job['arguments'])
+                        prepared.apply_defaults()
+                        expected_arguments = dict(prepared.arguments)
+                        expected_arguments['operation_id'] = operation_id
+                        if job['tool'] != function.__name__ or expected_arguments != values:
+                            raise Refusal('prepared task arguments differ; do not bypass the task record')
+                        if job['schema'] in (2, 3):
+                            request['precondition'] = job['precondition']
+                        if job['schema'] == 3:
+                            request['review_digest'] = job['digest']
+                    encoded = json.dumps(request, sort_keys=True, ensure_ascii=False, allow_nan=False).encode('utf-8')
+                    if len(encoded) > 1024 * 1024:
+                        raise Refusal('operation arguments/context exceed 1 MiB')
+                    fingerprint = hashlib.sha256(encoded).hexdigest()
                     # Recheck current paths/approvals even for a completed replay. Paths may be
                     # absent after archive; validate containment and links, not business existence.
                     policy.validate(function.__name__, values)
@@ -402,9 +438,26 @@ def boundary(*, mutating=False):
                             return refused('workspace has a pending/ambiguous operation; reconciliation required',
                                            'reconciliation_required')
                     checking_receipts = False
+                    # Completed replay and ambiguous-operation handling above remain intact.
+                    # Only new executions require a schema-2 preparation in strict mode.
+                    if mutating and strict == '1' and 'precondition' not in request:
+                        return refused('prepare a new target-bound task before execution',
+                                       'preparation_required')
+                    if 'precondition' in request:
+                        review_audit = None
+                        if 'review_digest' in request:
+                            from .reviewed_execution import authorize
+                            review_audit = authorize(job, control)
+                        from .freshness import capture
+                        if capture(policy, function.__name__, values) != request['precondition']:
+                            return refused('prepared target changed; review and prepare again; no execution started',
+                                           'stale_precondition')
                     if receipt:
                         record = dict(version=1, operation_id=operation_id, fingerprint=fingerprint,
                                       request=request, state='pending')
+                        if 'review_digest' in request:
+                            record['version'] = 2
+                            record['review_audit'] = review_audit
                         armed = True
                         # Active first: even a crash before receipt creation blocks new IDs.
                         # A pointer to a missing receipt requires supervisor reconciliation.

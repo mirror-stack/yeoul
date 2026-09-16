@@ -15,8 +15,12 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / 'mcp'))
+SOURCE = str(ROOT / 'mcp')
+if not os.environ.get('PRODUCT_TEST_INSTALLED'):
+    sys.path.insert(0, SOURCE)
 from yeoul_mcp import runtime, server
+if os.environ.get('PRODUCT_TEST_INSTALLED'):
+    SOURCE = str(Path(server.__file__).resolve().parents[1])
 
 WORKER = '''
 import json, os, sys, time
@@ -48,7 +52,7 @@ class RuntimeContract(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.env = {k: v for k, v in os.environ.items() if not k.startswith('YEOUL_')}
         self.env.update(YEOUL_MCP_ROOT=str(self.root), YEOUL_MCP_ALLOW_WRITE='1',
-                        PYTHONPATH=str(ROOT / 'mcp'), PYTHONDONTWRITEBYTECODE='1')
+                        PYTHONPATH=SOURCE, PYTHONDONTWRITEBYTECODE='1')
         self.environment = patch.dict(os.environ, self.env, clear=True)
         self.environment.start()
         self.addCleanup(self.environment.stop)

@@ -72,8 +72,11 @@ def main():
                 print(f'STOP: agent failed/timeout (exit {rc}); no completion accepted')
                 return 124 if rc == 124 else 2
             rc = verify(todo, baseline=baseline, revert=True, require=True, timeout=a.verify_timeout)
-            if rc == 3:
-                return 3
+            # Only an ordinary failed check (1) is retryable after checkbox reversion.
+            # Interrupted/unknown validation must not accept completion or launch a worker.
+            if rc not in (0, 1):
+                print(f'STOP: verification incomplete (exit {rc}); reconciliation required; no completion accepted')
+                return 124 if rc == 124 or rc < 0 else 3
             try:
                 usage = json.loads(out.read_text(encoding='utf-8'))['usage']
                 counts = [usage['input_tokens'], usage['output_tokens']]

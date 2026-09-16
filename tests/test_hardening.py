@@ -207,11 +207,11 @@ class Hardening(unittest.TestCase):
         self.assertEqual(self.call('arc-close', arc, 'KILL audit').returncode, 5)
         self.assertTrue(arc.exists())
 
-    def fake_loop(self, body, *extra):
+    def fake_loop(self, body, *extra, baseline='- [ ] real task. verify: `true`\n'):
         dev = self.root/'projects'/'p'/'dev'
         dev.mkdir(parents=True)
         todo = dev/'TODO.md'
-        todo.write_text('- [ ] real task. verify: `true`\n')
+        todo.write_text(baseline)
         fake = self.root/'fake agent.py'
         fake.write_text('import os,json\nfrom pathlib import Path\np=Path(os.environ["AUDIT_TODO"])\n'+body)
         env = dict(self.env, AUDIT_TODO=str(todo))
@@ -251,6 +251,40 @@ class Hardening(unittest.TestCase):
     def test_ralph_round_timeout(self):
         result, _ = self.fake_loop('import time\ntime.sleep(5)\n', '--round-timeout=0.05')
         self.assertEqual(result.returncode, 124, result.stdout+result.stderr)
+
+    def test_ralph_post_worker_verification_timeout_stops_without_completion(self):
+        baseline = '- [ ] real task. verify: `sleep 5`\n'
+        result, todo = self.fake_loop(
+            'p.write_text(p.read_text().replace("[ ]","[x]",1))\n'
+            'print(json.dumps({"usage":{"input_tokens":1,"output_tokens":1}}))\n',
+            '--verify-timeout=0.05', baseline=baseline)
+        self.assertEqual(result.returncode, 124, result.stdout+result.stderr)
+        self.assertNotIn('RALPH_DONE', result.stdout)
+        self.assertIn('reconciliation required', result.stdout+result.stderr)
+        self.assertEqual(todo.read_text(), baseline.replace('[ ]', '[x]'),
+                         'interrupted verification preserves evidence, not accepted completion')
+        self.assertEqual(len(list((todo.parent/'ralph_log').rglob('round_*.json'))), 1)
+
+    def test_ralph_post_worker_verification_timeout_never_starts_next_round(self):
+        result, todo = self.fake_loop(
+            'p.write_text(p.read_text().replace("[ ]","[x]",1))\n'
+            'print(json.dumps({"usage":{"input_tokens":1,"output_tokens":1}}))\n',
+            '--verify-timeout=0.05',
+            baseline='- [ ] first. verify: `sleep 5`\n- [ ] second. verify: `true`\n')
+        self.assertEqual(result.returncode, 124, result.stdout+result.stderr)
+        self.assertNotIn('RALPH_DONE', result.stdout)
+        self.assertIn('[ ] second', todo.read_text())
+        self.assertEqual(len(list((todo.parent/'ralph_log').rglob('round_*.json'))), 1)
+
+    def test_ralph_ordinary_failed_verification_remains_retryable(self):
+        result, todo = self.fake_loop(
+            'p.write_text(p.read_text().replace("[ ]","[x]",1))\n'
+            'print(json.dumps({"usage":{"input_tokens":1,"output_tokens":1}}))\n',
+            '--max-rounds=2', baseline='- [ ] real task. verify: `false`\n')
+        self.assertEqual(result.returncode, 2, result.stdout+result.stderr)
+        self.assertNotIn('RALPH_DONE', result.stdout)
+        self.assertIn('[ ] real task', todo.read_text())
+        self.assertEqual(len(list((todo.parent/'ralph_log').rglob('round_*.json'))), 2)
 
     def test_loop_guard_boundary_and_invalid_counts(self):
         self.call('loop-guard', self.arc, 'init', '--max-rounds=1')

@@ -118,7 +118,7 @@ class Workspace:
         root = self.root(root)
         config = read_json(root / self.config_name)
         expected = {"schema", "product", "root", "revision", "mode", "external_ledgers", "verification"}
-        if (not isinstance(config, dict) or set(config) != expected or type(config["schema"]) is not int
+        if (not isinstance(config, dict) or not expected <= set(config) <= expected | {'write_policy'} or type(config["schema"]) is not int
                 or config["schema"] != 1 or config["product"] != self.product or config["root"] != str(root)
                 or config["mode"] not in self.modes or not isinstance(config["revision"], str)
                 or not isinstance(config["external_ledgers"], list) or len(config["external_ledgers"]) > 100
@@ -127,6 +127,8 @@ class Workspace:
                     (not isinstance(config["verification"], dict) or
                      set(config["verification"]) != {"path", "sha256"}))):
             raise ValueError("Invalid or relocated workspace config; do not silently repair it.")
+        if config.get('write_policy', 'compatible') not in ('compatible', 'prepared_only'):
+            raise ValueError('Invalid write policy.')
         verification = config["verification"]
         if verification is not None and (not isinstance(verification["path"], str) or
                                         not isinstance(verification["sha256"], str)):
@@ -148,7 +150,9 @@ class Workspace:
                 write_json(history / (uuid.uuid4().hex + ".json"), previous)
             write_json(path, config)
 
-    def setup(self, folder, mode):
+    def setup(self, folder, mode, write_policy=None):
+        if write_policy not in (None, 'compatible', 'prepared_only'):
+            raise ValueError('Invalid write policy.')
         if mode not in self.modes:
             raise ValueError("Unknown mode.")
         root = checked_path(folder)
@@ -157,15 +161,21 @@ class Workspace:
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
         config = dict(schema=1, product=self.product, root=str(root), revision=uuid.uuid4().hex,
                       mode=mode, external_ledgers=[], verification=None)
+        if write_policy is not None:
+            config['write_policy'] = write_policy
         self.save_config(root, config, initial=True)
         return {"workspace": str(root), "mode": mode, "next": self.product + " doctor --workspace " + str(root)}
 
-    def configure(self, root, mode):
+    def configure(self, root, mode, write_policy=None):
+        if write_policy not in (None, 'compatible', 'prepared_only'):
+            raise ValueError('Invalid write policy.')
         config = self.load(root)
         revision = config["revision"]
         if mode not in self.modes:
             raise ValueError("Unknown mode.")
         config.update(mode=mode, revision=uuid.uuid4().hex)
+        if write_policy is not None:
+            config['write_policy'] = write_policy
         # Mode changes revoke shell approval, never silently keep an old execution grant.
         config["verification"] = None
         self.save_config(Path(root), config, expected_revision=revision)
@@ -181,6 +191,7 @@ class Workspace:
                self.prefix + "_MCP_ALLOW_NETWORK": "0",
                self.prefix + "_MCP_READ_LEDGERS": canonical(config["external_ledgers"])}
         if self.product == "yeoul":
+            env['YEOUL_MCP_REQUIRE_PREPARED'] = '1' if config.get('write_policy') == 'prepared_only' else '0'
             env.update(YEOUL_PROJECTS=str(Path(root) / "projects"),
                        YEOUL_INDEX=str(Path(root) / "KNOWLEDGE_INDEX.md"),
                        YEOUL_CLOSED_REGISTRY=str(Path(root) / "registry/closed_questions.jsonl"))
@@ -229,17 +240,28 @@ class Workspace:
 
     def load_job(self, root, job_id):
         job = read_json(self.job_path(root, job_id))
-        if (not isinstance(job, dict) or set(job) != {"schema", "id", "tool", "arguments", "created", "digest"}
-                or type(job["schema"]) is not int or job["schema"] != 1 or job["id"] != job_id
+        fields = {"schema", "id", "tool", "arguments", "created", "digest"}
+        if isinstance(job, dict) and job.get("schema") in (2, 3):
+            fields.add("precondition")
+        if isinstance(job, dict) and job.get("schema") == 3:
+            fields.add("review")
+        if (not isinstance(job, dict) or set(job) != fields
+                or type(job["schema"]) is not int or job["schema"] not in (1, 2, 3) or job["id"] != job_id
                 or not isinstance(job["tool"], str) or not isinstance(job["arguments"], dict)
                 or "operation_id" in job["arguments"] or type(job["created"]) not in (int, float)):
             raise ValueError("Invalid task record; preserve it for inspection.")
         unsigned = {k: v for k, v in job.items() if k != "digest"}
         if hashlib.sha256(canonical(unsigned).encode()).hexdigest() != job["digest"]:
             raise ValueError("Task record changed; refusing execution.")
+        if job['schema'] in (2, 3):
+            from .freshness import check_shape
+            check_shape(job['precondition'])
+        if job['schema'] == 3:
+            from .reviewed_execution import check_review
+            check_review(job['review'])
         return job
 
-    def prepare(self, root, tool, arguments):
+    def prepare(self, root, tool, arguments, *, review=None):
         self.require_managed(root)
         if not isinstance(arguments, dict) or "operation_id" in arguments:
             raise ValueError("Arguments must be an object; task IDs are managed internally.")
@@ -248,6 +270,12 @@ class Workspace:
             raise ValueError("Unknown business tool.")
         fn = tools[tool]
         inspect.signature(fn).bind(**arguments)
+        if review is not None:
+            from .reviewed_execution import check_review
+            check_review(review)
+            if "operation_id" not in inspect.signature(fn).parameters:
+                raise ValueError("Review binding requires a mutating tool.")
+            review = json.loads(canonical(review))
         if "operation_id" in inspect.signature(fn).parameters:
             if os.environ.get(self.prefix + "_MCP_ALLOW_WRITE") != "1":
                 raise ValueError("This workspace is read-only.")
@@ -255,13 +283,24 @@ class Workspace:
             if allowed is not None and tool not in allowed.split(","):
                 raise ValueError("This tool is not permitted in the selected mode.")
         job = dict(schema=1, id=uuid.uuid4().hex, tool=tool, arguments=arguments, created=time.time())
-        job["digest"] = hashlib.sha256(canonical(job).encode()).hexdigest()
         with self.runtime.workspace_lock(Path(root)):
+            if "operation_id" in inspect.signature(fn).parameters:
+                from .freshness import capture
+                bound = inspect.signature(fn).bind(**arguments)
+                bound.apply_defaults()
+                values = dict(bound.arguments)
+                policy = self.runtime.Policy(values)
+                policy.validate(tool, values)
+                job.update(schema=2, precondition=capture(policy, tool, values))
+                if review is not None:
+                    job.update(schema=3, review=review)
+            job["digest"] = hashlib.sha256(canonical(job).encode()).hexdigest()
             directory = self.job_path(root, job["id"]).parent
             checked_path(directory)
             directory.mkdir(mode=0o700, exist_ok=True)
             write_json(self.job_path(root, job["id"]), job)
         return {"task_id": job["id"], "state": "prepared", "tool": tool,
+                "freshness": "target_snapshot" if job["schema"] in (2, 3) else "not_bound",
                 "message": "Task prepared. Retain this ID before execution and reuse it for delivery retries."}
 
     def execute(self, root, job_id):
@@ -306,9 +345,19 @@ class Workspace:
             for path in sorted(directory.glob("*.json"), key=lambda p: p.name):
                 if len(out) >= 1000:
                     break
-                job = self.load_job(root, path.stem)
-                out.append({"task_id": job["id"], "tool": job["tool"], "created": job["created"],
-                            **self.receipt(root, job["id"])})
+                try:
+                    job = self.load_job(root, path.stem)
+                    row = {"task_id": job["id"], "tool": job["tool"], "created": job["created"],
+                           "freshness": "target_snapshot" if job["schema"] in (2, 3) else "legacy_or_readonly"}
+                except (ValueError, OSError) as exc:
+                    out.append({"task_id": path.stem, "state": "unreadable", "error": str(exc),
+                                "record": str(path), "needs_attention": True})
+                    continue
+                try:
+                    row.update(self.receipt(root, job["id"]))
+                except (ValueError, OSError) as exc:
+                    row.update(state="unreadable", error=str(exc), needs_attention=True)
+                out.append(row)
         return {"tasks": out, "limit": 1000, "message": "Status inspection does not execute tasks or clear pending state."}
 
     def active(self, root):
@@ -356,6 +405,7 @@ class Workspace:
             except (ValueError, OSError) as exc:
                 checks.append({"name": "linked ledger", "path": value, "ok": False, "error": str(exc)})
         return {"ok": all(row["ok"] for row in checks), "checks": checks,
+                "write_policy": config.get('write_policy', 'compatible'),
                 "mode": config["mode"], "scope": "configuration and local prerequisites; not business verification",
                 "message": "Readiness check only; not certification of ledger truth or business success."}
 
@@ -385,11 +435,48 @@ class Workspace:
         return {"ledger": str(path), "access": "revoked" if remove else "read-only",
                 "message": "Reconnect to apply the change. The source ledger was not modified."}
 
+    def recovery_report(self, root):
+        """Read-only diagnosis; unreadable evidence never becomes permission to repair."""
+        self.load(root)
+        errors = []
+        try:
+            active = self.active(root)
+        except (ValueError, OSError) as exc:
+            active = {"state": "unreadable", "needs_attention": True}
+            errors.append({"scope": "active operation", "error": str(exc)})
+        try:
+            tasks = self.tasks(root)
+        except (ValueError, OSError) as exc:
+            tasks = {"tasks": [], "incomplete": True}
+            errors.append({"scope": "task inventory", "error": str(exc)})
+        unreadable = bool(errors) or any(row.get('state') == 'unreadable' for row in tasks['tasks'])
+        pending = bool(active and active['needs_attention'])
+        orphaned = not active and any(row.get('state') == 'pending' for row in tasks['tasks'])
+        if unreadable:
+            diagnosis = 'evidence_unreadable'
+            next_step = 'Preserve originals and restore missing/corrupt metadata from verified evidence before reconciliation. Do not fabricate an approval or receipt.'
+        elif orphaned:
+            diagnosis = 'orphaned_pending_receipt'
+            next_step = 'A pending task exists without an active marker. Preserve evidence and investigate missing metadata; do not bypass it with a new task ID.'
+        elif pending:
+            diagnosis = 'interrupted_operation'
+            next_step = 'Confirm child processes stopped and compare business effects with the saved task and review evidence. Record reconciliation only after inspection.'
+        else:
+            diagnosis = 'no_active_interruption_detected'
+            next_step = 'No active interruption was detected. This does not prove business completion or authorize a retry.'
+        control = Path(root) / self.control
+        return {"active": active, "tasks": tasks, "diagnosis": diagnosis,
+                "errors": errors, "retry_authorized": False, "read_only": True,
+                "preserve": [str(control), str(Path(root) / self.config_name)],
+                "next_step": next_step,
+                "business_inspection": ['original and destination paths', 'summary and state',
+                                        'shared index and verification effects', 'remaining business locks'],
+                "message": "Diagnosis only. Reconciliation retires an operation ID; it does not repair business data, clear business locks, or certify completion."}
+
     def recover(self, root, acknowledge=False, note="", children_stopped=False):
         self.load(root)
         if not acknowledge:
-            return {"active": self.active(root), "tasks": self.tasks(root),
-                    "message": "Preserve business data and receipts. Inspect changed files and surviving children. No automatic retry."}
+            return self.recovery_report(root)
         if not note.strip() or not children_stopped:
             raise ValueError("A reconciliation note and --children-stopped are required.")
         with self.runtime.workspace_lock(Path(root)):
@@ -459,6 +546,7 @@ class Workspace:
             p.add_argument("folder", nargs="?")
             p.add_argument("--mode", choices=list(self.modes), default=None)
             p.add_argument("--yes", action="store_true")
+            p.add_argument('--write-policy', choices=('compatible', 'prepared_only'), default=None)
         for name in ("doctor", "connect", "tasks", "serve"):
             command(name)
         p = command("run")
@@ -506,8 +594,10 @@ class Workspace:
                 mode = args.mode or "observe"
                 if not args.mode and sys.stdin.isatty():
                     mode = input("Mode %s [%s]: " % ("/".join(self.modes), mode)).strip() or mode
-                confirm("Configure folder %s / mode %s for %s." % (folder, mode, self.product))
-                result = self.setup(folder, mode) if cmd == "setup" else self.configure(self.root(folder), mode)
+                confirm("Configure folder %s / mode %s / write policy %s for %s." %
+                        (folder, mode, args.write_policy or 'unchanged/default', self.product))
+                result = (self.setup(folder, mode, args.write_policy) if cmd == "setup"
+                          else self.configure(self.root(folder), mode, args.write_policy))
             elif cmd == "doctor":
                 result = self.doctor(root)
             elif cmd == "connect":
