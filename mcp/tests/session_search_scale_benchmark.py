@@ -26,7 +26,7 @@ def query(session, text, indexed):
 
 def measure(word_count, repeats=3):
     with tempfile.TemporaryDirectory(prefix='yeoul-search-scale-') as folder:
-        path = Path(folder) / 'session.sqlite'
+        path = Path(folder).resolve() / 'session.sqlite'
         accepted = 0
         started = time.perf_counter()
         with SessionContext.create(path) as session:

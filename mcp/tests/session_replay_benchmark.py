@@ -31,7 +31,7 @@ def _open(path, fast):
 
 def measure(label, populate, repeats):
     with tempfile.TemporaryDirectory(prefix='yeoul replay benchmark ') as folder:
-        path = Path(folder) / 'session.sqlite'
+        path = Path(folder).resolve() / 'session.sqlite'
         started = time.perf_counter()
         with SessionContext.create(path) as session:
             populate(session)

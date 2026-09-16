@@ -99,7 +99,7 @@ class IsolatedContract(unittest.TestCase):
         for failed_stage in ('initial_show', 'stop', 'final_show'):
             with self.subTest(stage=failed_stage), tempfile.TemporaryDirectory() as tmp:
                 self.events = []
-                journal = WorkerJournal(Path(tmp))
+                journal = WorkerJournal(Path(tmp).resolve())
                 count = 0
                 def record(raw):
                     journal(raw)
@@ -124,7 +124,7 @@ class IsolatedContract(unittest.TestCase):
                 event = self.events[-1]
                 self.assertEqual(event['cleanup_stage'], failed_stage)
                 self.assertNotIn('PRIVATE_DIAGNOSTIC', json.dumps(self.events))
-                self.assertEqual(WorkerJournal(Path(tmp)).inspect(event['unit'])['state'], 'cleanup_unconfirmed')
+                self.assertEqual(WorkerJournal(Path(tmp).resolve()).inspect(event['unit'])['state'], 'cleanup_unconfirmed')
                 legacy = dict(event)
                 del legacy['cleanup_stage']
                 _event(legacy)
@@ -206,7 +206,7 @@ print(json.dumps(dict(input_sha256=hashlib.sha256(raw).hexdigest(), proposal=dic
 '''
         with tempfile.TemporaryDirectory(prefix='yeoul-isolated-audit-') as tmp:
             events = []
-            journal = WorkerJournal(Path(tmp))
+            journal = WorkerJournal(Path(tmp).resolve())
             def record(raw):
                 event = json.loads(raw)
                 journal(raw)
@@ -224,8 +224,8 @@ print(json.dumps(dict(input_sha256=hashlib.sha256(raw).hexdigest(), proposal=dic
             self.assertEqual(result['execution'], 'NOT_PERFORMED')
             self.assertEqual(result['proposal'], {'total': 17})
             self.assertEqual(events[-1]['state'], 'returned')
-            self.assertEqual(len(list(Path(tmp).rglob('00000*.json'))), len(events))
-            retained = WorkerJournal(Path(tmp)).read_output(events[0]['unit'])
+            self.assertEqual(len(list(Path(tmp).resolve().rglob('00000*.json'))), len(events))
+            retained = WorkerJournal(Path(tmp).resolve()).read_output(events[0]['unit'])
             self.assertEqual(json.loads(retained)['proposal'], {'total': 17})
             noisy = make_worker(['/usr/bin/python3', '-I', '-B', '-c',
                 'import sys; sys.stdin.buffer.read(); print("x"*70000)'], 10)
@@ -243,12 +243,12 @@ print(json.dumps(dict(input_sha256=hashlib.sha256(raw).hexdigest(), proposal=dic
             def counted(command, payload, timeout):
                 calls.append(command)
                 return broker(command, payload, timeout)
-            access = WorkerAccess(Path(tmp))
+            access = WorkerAccess(Path(tmp).resolve())
             access.configure({'synthetic-task': {'uid': os.getuid(), 'actions': ['execute', 'inspect']}})
             server, client = socket.socketpair()
             self.addCleanup(server.close)
             self.addCleanup(client.close)
-            managed = WorkerTasks(Path(tmp), counted, argv=['/usr/bin/python3', '-I', '-B', '-c', code],
+            managed = WorkerTasks(Path(tmp).resolve(), counted, argv=['/usr/bin/python3', '-I', '-B', '-c', code],
                 uid=os.getuid(), gid=os.getgid(), authorize=access.authorize, timeout=10)
             supplied = []
             def mapped(payload):
@@ -258,7 +258,7 @@ print(json.dumps(dict(input_sha256=hashlib.sha256(raw).hexdigest(), proposal=dic
             result = run_shadow('logical-shadow', lambda: snapshot, mapped, {'sum': ('fixture', verify)})
             self.assertEqual(result['state'], 'ready_for_review', result)
             count = len(calls)
-            reopened = WorkerTasks(Path(tmp), counted, argv=['/usr/bin/python3', '-I', '-B', '-c', code],
+            reopened = WorkerTasks(Path(tmp).resolve(), counted, argv=['/usr/bin/python3', '-I', '-B', '-c', code],
                 uid=os.getuid(), gid=os.getgid(), authorize=access.authorize, timeout=10)
             with access.connection(server):
                 self.assertEqual(json.loads(reopened.execute('synthetic-task', supplied[0]))['proposal'], {'total': 17})
@@ -289,7 +289,7 @@ print(json.dumps(dict(input_sha256=hashlib.sha256(raw).hexdigest(), proposal=dic
             return CommandWorker(['/usr/bin/sudo', '-n', *command], cwd='/tmp',
                 env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8'}, timeout=timeout)(payload)
         with tempfile.TemporaryDirectory(prefix='yeoul-cancel-audit-') as tmp:
-            tasks = WorkerTasks(Path(tmp), invoke,
+            tasks = WorkerTasks(Path(tmp).resolve(), invoke,
                 argv=['/usr/bin/python3', '-I', '-B', '-c', 'import time; time.sleep(20)'],
                 uid=os.getuid(), gid=os.getgid(), timeout=10,
                 authorize=lambda task, action: task == 'synthetic-cancel' and action in ('execute', 'cancel', 'inspect'))
@@ -324,7 +324,7 @@ print(json.dumps(dict(input_sha256=hashlib.sha256(raw).hexdigest(), proposal=dic
                     observed.append(tasks.cancel('late-task', note='cancel queued synthetic request'))
                 return CommandWorker(['/usr/bin/sudo', '-n', *command], cwd='/tmp',
                     env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8'}, timeout=timeout)(payload)
-            tasks = WorkerTasks(Path(tmp), invoke,
+            tasks = WorkerTasks(Path(tmp).resolve(), invoke,
                 argv=['/usr/bin/python3', '-I', '-B', '-c', 'print("UNEXPECTED_LATE_RESULT")'],
                 uid=os.getuid(), gid=os.getgid(), timeout=10,
                 authorize=lambda task, action: task == 'late-task' and action in ('execute', 'cancel', 'inspect'))
@@ -363,10 +363,10 @@ tasks.execute('host-death', b'synthetic')
             return CommandWorker(['/usr/bin/sudo', '-n', *command], cwd='/tmp',
                 env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8'}, timeout=timeout)(payload)
         with tempfile.TemporaryDirectory(prefix='yeoul-real-host-death-') as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             reopened = WorkerTasks(root, observe, argv=worker_argv, uid=os.getuid(), gid=os.getgid(),
                                   timeout=20, authorize=lambda task, action: True)
-            child = subprocess.Popen([sys.executable, '-B', '-c', code, tmp, json.dumps(worker_argv)],
+            child = subprocess.Popen([sys.executable, '-B', '-c', code, str(root), json.dumps(worker_argv)],
                 env=dict(os.environ, PYTHONPATH=source), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             unit = None
             try:

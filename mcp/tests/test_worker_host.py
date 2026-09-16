@@ -20,7 +20,7 @@ class WorkerHost(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix='yeoul-host-journal-')
         self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name)
+        self.root = Path(tmp.name).resolve()
         self.journal = WorkerJournal(self.root)
         self.calls, self.events = [], []
         self.argv = ['/usr/bin/python3', '-c', 'pass']

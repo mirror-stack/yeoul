@@ -122,7 +122,7 @@ def main():
     print("mcp _run contract tests")
     with tempfile.TemporaryDirectory() as tmp:
         # Test helpers belong to the test workspace, never the installed package/repo.
-        server.BIN = Path(tmp)
+        server.BIN = Path(tmp).resolve()
         os.environ['YEOUL_BIN'] = tmp
         test_stdin_not_inherited(tmp)
         test_utf8_pinned_under_hostile_locale(tmp)

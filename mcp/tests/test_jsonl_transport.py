@@ -18,7 +18,7 @@ class JsonlTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix='yeoul-jsonl-')
         self.addCleanup(folder.cleanup)
-        self.cwd = folder.name
+        self.cwd = Path(folder.name).resolve()
 
     def process(self, code, **limits):
         return JsonlProcess([sys.executable, '-B', '-u', '-c', code], cwd=self.cwd, **limits)

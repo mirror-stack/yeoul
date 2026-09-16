@@ -13,7 +13,7 @@ class PublishGate(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='yeoul-publish-')
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         for name in ('setup/pre-publish-check.sh', 'setup/check_markdown_links.py',
                      'bin/_pybin.sh'):
             target = self.root / name

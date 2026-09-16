@@ -22,7 +22,7 @@ class LocalHostTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix='yeoul-local-host-')
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name) / 'project'
+        self.root = Path(folder.name).resolve() / 'project'
         env = {k: v for k, v in os.environ.items() if not k.startswith(('YEOUL_', 'AM_'))}
         guard = patch.dict(os.environ, env, clear=True)
         guard.start()

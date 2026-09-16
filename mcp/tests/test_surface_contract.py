@@ -20,7 +20,7 @@ from test_hardening import ledger
 class Surface(unittest.TestCase):
     def test_windows_prefers_git_bash_and_rejects_wsl_launcher(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             shell = root/'Git'/'bin'/'bash.exe'
             shell.parent.mkdir(parents=True)
             shell.touch()
@@ -36,7 +36,7 @@ class Surface(unittest.TestCase):
 
     def test_cli_mcp_eligibility_and_nondefault_projects_root(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             projects = root/'custom-projects'
             dev = projects/'p'/'dev'
             dev.mkdir(parents=True)
@@ -51,15 +51,16 @@ class Surface(unittest.TestCase):
 
     def test_mcp_missing_usage_is_unmeasured(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(server.loop_guard_init(tmp)['exit_code'], 0)
-            result = server.loop_guard_tick(tmp)
+            root = Path(tmp).resolve()
+            self.assertEqual(server.loop_guard_init(root)['exit_code'], 0)
+            result = server.loop_guard_tick(root)
             self.assertIn('STOP:unmeasured', result['stdout'])
 
     def test_result_adapter_matches_mirror_publish_contract(self):
         from mirror_stack_mcp.gate import decide
         from mirror_stack_mcp.integrity import read_verified as mirror_verified
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             arc = root/'arc'
             arc.mkdir()
             claims = root/'claims.jsonl'
@@ -86,7 +87,7 @@ class Surface(unittest.TestCase):
         from actmirror import am
         from mirror_stack_mcp.gate import decide
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             claims, actions = root/'claims.jsonl', root/'actions.jsonl'
             ledger(claims, [dict(claim_id='c1', kill_condition='stop at the preregistered bar')])
             am.record(str(actions), agent='test', action='arc-close', target='c1')

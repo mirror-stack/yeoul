@@ -59,7 +59,7 @@ class ReviewedCrashes(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='yeoul-crash-')
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name) / 'workspace'
+        self.root = Path(self.tmp.name).resolve() / 'workspace'
         env = {k: v for k, v in os.environ.items() if not k.startswith(('YEOUL_', 'AM_'))}
         self.patch = patch.dict(os.environ, env, clear=True)
         self.patch.start()
@@ -84,7 +84,7 @@ class ReviewedCrashes(unittest.TestCase):
         # Each boundary has an independent root, retaining every pre-restart byte.
         for stage in ('audit', 'active', 'pending', 'effect', 'complete'):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory(prefix='yeoul-stage-') as tmp:
-                root = Path(tmp) / 'workspace'
+                root = Path(tmp).resolve() / 'workspace'
                 workspace.setup(root, 'discuss', 'prepared_only')
                 with workspace.activated(root):
                     saved_root, self.root = self.root, root
@@ -129,7 +129,7 @@ class ReviewedCrashes(unittest.TestCase):
     def assert_archive_interruption(self, marker, closed, recorded):
         import shutil
         # Instrument only a private copy; no production fault-injection switch.
-        scripts = Path(self.tmp.name) / 'scripts'
+        scripts = Path(self.tmp.name).resolve() / 'scripts'
         shutil.copytree(server.BIN, scripts)
         close = scripts / 'arc-close'
         original = close.read_text()

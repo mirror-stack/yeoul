@@ -19,7 +19,7 @@ class WorkerTaskContract(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix='yeoul-logical-worker-')
         self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name)
+        self.root = Path(tmp.name).resolve()
         self.calls = []
         self.allowed = True
         self.tasks = self.make()
@@ -390,8 +390,8 @@ raise AssertionError('expected kill boundary was not reached')
 '''
         for point in ('intent', 'marker', 'request', 'result'):
             with self.subTest(point=point), tempfile.TemporaryDirectory(prefix='yeoul-cancel-crash-') as tmp:
-                root = Path(tmp)
-                child = subprocess.run([sys.executable, '-B', '-c', code, tmp, point],
+                root = Path(tmp).resolve()
+                child = subprocess.run([sys.executable, '-B', '-c', code, str(root), point],
                     env=dict(os.environ, PYTHONPATH=source), capture_output=True, timeout=15)
                 self.assertEqual(child.returncode, -signal.SIGKILL, child.stderr)
                 calls = []

@@ -29,7 +29,7 @@ def timed_open(path, *, checkpoint, expected_hash):
 
 def measure(word_count, repeats=3):
     with tempfile.TemporaryDirectory(prefix='yeoul-session-scale-') as folder:
-        path = Path(folder) / 'session.sqlite'
+        path = Path(folder).resolve() / 'session.sqlite'
         created = SessionContext.create(path)
         created.close()
         # This benchmark isolates source replay/checkpoint scaling. Literal-search

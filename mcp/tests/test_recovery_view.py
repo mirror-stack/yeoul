@@ -19,7 +19,7 @@ class RecoveryView(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix='yeoul-recovery-view-')
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()
         self.calls = []
         self.allowed = {'shown'}
         def invoke(command, payload, timeout):

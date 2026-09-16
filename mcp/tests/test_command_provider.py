@@ -26,7 +26,7 @@ class ProviderTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix='yeoul-provider-')
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()
 
     def provider(self, code, **kwargs):
         return CommandProvider('check', 'fixture', [sys.executable, '-B', '-c', code],

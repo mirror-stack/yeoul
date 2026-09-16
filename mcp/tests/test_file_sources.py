@@ -20,7 +20,7 @@ class CurrentFiles(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix='yeoul-current-sources-')
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()
         (self.root/'.yeoul-mcp').mkdir(mode=0o700)
         self.manifest = dict(version=1, target='synthetic', sources=[])
         for role in ('goal', 'status', 'action', 'policy', 'constraints', 'detail', 'audit', 'history'):

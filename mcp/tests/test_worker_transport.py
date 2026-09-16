@@ -17,9 +17,10 @@ class WorkerTransport(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='yeoul transport ')
         self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
 
     def worker(self, code, **limits):
-        return CommandWorker([sys.executable, '-I', '-B', '-c', code], cwd=self.tmp.name, **limits)
+        return CommandWorker([sys.executable, '-I', '-B', '-c', code], cwd=self.root, **limits)
 
     def test_exact_input_and_bounded_output(self):
         data = b'x' * 200000
@@ -52,7 +53,7 @@ class WorkerTransport(unittest.TestCase):
             self.assertEqual(self.worker('import os; print(os.environ.get("YEOUL_PRIVATE_TEST", "absent"))')(b''), b'absent\n')
 
     def test_input_limit_prevents_launch(self):
-        marker = Path(self.tmp.name)/'launched'
+        marker = self.root/'launched'
         worker = self.worker('from pathlib import Path; Path("launched").touch()', input_limit=1)
         with self.assertRaisesRegex(WorkerTransportError, 'worker_input_limit'):
             worker(b'xx')
@@ -64,12 +65,12 @@ class WorkerTransport(unittest.TestCase):
                 self.worker('pass', **limits)
 
     def test_missing_executable_never_falls_back(self):
-        worker = CommandWorker([str(Path(self.tmp.name)/'missing')], cwd=self.tmp.name)
+        worker = CommandWorker([str(self.root/'missing')], cwd=self.root)
         with self.assertRaisesRegex(WorkerTransportError, 'worker_launch_failed'):
             worker(b'')
 
     def test_successful_parent_does_not_leave_same_group_child(self):
-        marker = Path(self.tmp.name)/'survived'
+        marker = self.root/'survived'
         child_code = 'import time; from pathlib import Path; time.sleep(1); Path("survived").touch()'
         code = ('import subprocess,sys; '
                 f'subprocess.Popen([sys.executable,"-c",{child_code!r}], '
@@ -80,7 +81,7 @@ class WorkerTransport(unittest.TestCase):
         self.assertFalse(marker.exists())
 
     def test_lingering_child_is_stopped_on_timeout(self):
-        marker = Path(self.tmp.name)/'survived'
+        marker = self.root/'survived'
         child_code = 'import time; from pathlib import Path; time.sleep(1); Path("survived").touch()'
         code = ('import subprocess,sys,time; '
                 f'subprocess.Popen([sys.executable,"-c",{child_code!r}]); '

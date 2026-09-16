@@ -19,7 +19,8 @@ class ShadowWorkflow(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='yeoul shadow host ')
         self.addCleanup(self.tmp.cleanup)
-        self.source = Path(self.tmp.name)/'snapshot.json'
+        self.root = Path(self.tmp.name).resolve()
+        self.source = self.root/'snapshot.json'
         self.snapshot = dict(target='synthetic-table', revision='r1', sources=[
             dict(id=role, role=role, category='REQUIRED_ACTIVE', body=body)
             for role, body in [('goal', 'Report total count'), ('status', '[4,7,6]'),
@@ -62,7 +63,7 @@ class ShadowWorkflow(unittest.TestCase):
         self.assertEqual(result['execution'], 'NOT_PERFORMED')
         self.assertEqual(self.calls, ['worker', 'verifier'])
         self.assertEqual(self.source.read_bytes(), before)
-        self.assertEqual(list(Path(self.tmp.name).iterdir()), [self.source])
+        self.assertEqual(list(self.root.iterdir()), [self.source])
 
     def test_false_worker_claim_is_rejected_by_independent_adapter(self):
         def wrong(payload):

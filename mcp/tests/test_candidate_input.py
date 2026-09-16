@@ -15,7 +15,7 @@ class CandidateInput(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='yeoul candidate ')
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.file = self.root/'proposal.json'
         self.file.write_bytes(b'{"total":17}')
 

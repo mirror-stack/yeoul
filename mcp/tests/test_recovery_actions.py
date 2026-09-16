@@ -21,7 +21,7 @@ class RecoveryConfirmation(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix='yeoul-recovery-actions-')
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()
         self.uid, self.allowed, self.calls = 1000, True, []
         def invoke(command, payload, timeout):
             self.calls.append(command)

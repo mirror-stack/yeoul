@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[2]
 class WheelArchive(unittest.TestCase):
     def test_archive_parity_and_pure_contracts_without_install(self):
         with tempfile.TemporaryDirectory(prefix='yeoul archive check ') as folder:
-            base = Path(folder)
+            base = Path(folder).resolve()
             source = base / 'source'
             source.mkdir()
             for name in ('mcp', 'bin', 'templates'):

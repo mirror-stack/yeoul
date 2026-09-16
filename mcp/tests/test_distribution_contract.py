@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[2]
 class DistributionContract(unittest.TestCase):
     def test_wheel_contains_current_harness_and_passes_its_regressions(self):
         with tempfile.TemporaryDirectory(prefix='yeoul distribution ') as folder:
-            base = Path(folder)
+            base = Path(folder).resolve()
             source = base / 'source'
             source.mkdir()
             for name in ('mcp', 'bin', 'templates'):

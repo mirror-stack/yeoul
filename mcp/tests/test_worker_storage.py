@@ -19,7 +19,7 @@ class StorageAdmission(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix='yeoul-storage-')
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()
         self.calls = []
         def invoke(command, payload, timeout):
             self.calls.append(command)

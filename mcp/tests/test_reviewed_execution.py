@@ -23,7 +23,7 @@ class ReviewedExecution(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix='yeoul-reviewed-')
         self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name) / 'workspace'
+        self.root = Path(tmp.name).resolve() / 'workspace'
         env = {k: v for k, v in os.environ.items() if not k.startswith('YEOUL_')}
         stack = ExitStack()
         self.addCleanup(stack.close)

@@ -20,7 +20,7 @@ class WorkerPeerAccess(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix='yeoul-peer-access-')
         self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name)
+        self.root = Path(tmp.name).resolve()
         self.access = WorkerAccess(self.root)
         self.grants = {'owned': {'uid': os.getuid(), 'actions': ['execute', 'inspect', 'retire']},
                        'foreign': {'uid': os.getuid()+1, 'actions': ['execute', 'inspect']}}

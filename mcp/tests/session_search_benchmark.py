@@ -31,7 +31,7 @@ def main():
     if not 10 <= args.events <= 9999 or not 1 <= args.repeats <= 20:
         raise SystemExit('benchmark sizes out of range')
     with tempfile.TemporaryDirectory(prefix='yeoul search benchmark ') as folder:
-        path = Path(folder) / 'session.sqlite'
+        path = Path(folder).resolve() / 'session.sqlite'
         started = time.perf_counter()
         with SessionContext.create(path) as session:
             source_turn = session.record('old UniqueNeedle source', origin='trace',

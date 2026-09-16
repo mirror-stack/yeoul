@@ -33,7 +33,7 @@ class Hardening(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='yeoul contract ')
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.env = dict(os.environ, YEOUL_PROJECTS=str(self.root/'projects'),
                         YEOUL_INDEX=str(self.root/'index.md'), AM_LEDGER=str(self.root/'actions.jsonl'),
                         YEOUL_LEDGER=str(self.root/'claims.jsonl'), PYTHONDONTWRITEBYTECODE='1')

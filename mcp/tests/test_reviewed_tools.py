@@ -39,7 +39,7 @@ class ReviewedTools(unittest.TestCase):
     @contextmanager
     def fixture(self, tool):
         with tempfile.TemporaryDirectory(prefix='yeoul-tools-') as tmp:
-            root = Path(tmp) / 'workspace'
+            root = Path(tmp).resolve() / 'workspace'
             env = {k: v for k, v in os.environ.items() if not k.startswith(('YEOUL_', 'AM_'))}
             with patch.dict(os.environ, env, clear=True):
                 workspace.setup(root, 'develop', 'prepared_only')

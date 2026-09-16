@@ -18,7 +18,7 @@ class EvidenceComparison(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix='yeoul-evidence-copies-')
         self.addCleanup(folder.cleanup)
-        base = Path(folder.name)
+        base = Path(folder.name).resolve()
         self.reference, self.candidate = base/'reference', base/'candidate'
         control = self.reference/'.yeoul-mcp'
         control.mkdir(parents=True)

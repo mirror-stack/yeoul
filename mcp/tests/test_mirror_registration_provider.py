@@ -39,7 +39,7 @@ class MirrorRegistration(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix='yeoul-real-mirror-')
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()
         self.registration = dict(claim_id='synthetic', metric='acc', kill_condition='below 0.5')
         import yeoul_mcp
         paths = [str(Path(yeoul_mcp.__file__).resolve().parents[1]),

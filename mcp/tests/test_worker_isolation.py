@@ -36,7 +36,7 @@ class WorkerIsolation(unittest.TestCase):
         if not shutil.which('bwrap') or not Path('/usr/bin/python3').is_file():
             self.skipTest('requires existing Linux bwrap and system Python')
         with tempfile.TemporaryDirectory(prefix='yeoul isolated worker ') as folder:
-            base = Path(folder)
+            base = Path(folder).resolve()
             source, work, hidden = base/'source', base/'work', base/'host-only'
             for directory in (source, work, hidden):
                 directory.mkdir()

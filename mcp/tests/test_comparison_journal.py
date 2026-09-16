@@ -18,7 +18,7 @@ class ComparisonJournalTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory(prefix='yeoul-comparison-journal-')
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()
         self.journal = ComparisonJournal(self.root, design())
         self.record = fixtures()[0]
         self.run = self.record['run_id']
