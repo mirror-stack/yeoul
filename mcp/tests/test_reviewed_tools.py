@@ -44,7 +44,8 @@ class ReviewedTools(unittest.TestCase):
             with patch.dict(os.environ, env, clear=True):
                 workspace.setup(root, 'develop', 'prepared_only')
                 todo = root / 'TODO.md'
-                todo.write_text('- [x] synthetic check. verify: `printf checked > verified.txt`\n')
+                todo.write_text('- [x] synthetic check. verify: `printf checked > verified.txt`\n',
+                                encoding='utf-8')
                 workspace.approve(root, todo)
                 with workspace.activated(root):
                     arc = None
@@ -61,13 +62,14 @@ class ReviewedTools(unittest.TestCase):
                                     kill_condition='observed errors exceed 3 over 10 trials')
                         body['seal'] = hashlib.sha256(json.dumps(body, sort_keys=True,
                             ensure_ascii=False, allow_nan=False).encode()).hexdigest()
-                        ledger.write_text(json.dumps(body) + '\n')
+                        ledger.write_text(json.dumps(body) + '\n', encoding='utf-8')
                         (arc / '0001_spec.md').write_text('\n'.join(
                             '- **' + label + '**: ' + value for label, value in (
                                 ('Goal', 'Measure synthetic parser errors across ten fixed input cases'),
                                 ('Success condition', 'All ten fixed input cases produce expected parsed fields'),
                                 ('Kill-condition', 'Observed errors exceed three across ten independent trials'),
-                                ('Constraints', 'Use synthetic records only and preserve source input files'))))
+                                ('Constraints', 'Use synthetic records only and preserve source input files'))),
+                            encoding='utf-8')
                     args = {
                         'yeoul_new': dict(name='new', no_arc=True),
                         'build_handoff': dict(name='base'),
@@ -101,11 +103,12 @@ class ReviewedTools(unittest.TestCase):
                 if tool == 'arc_close':
                     # Draft success is not archive success or business completion.
                     self.assertTrue(arc.exists())
-                    self.assertIn('Close-Pending', (arc / 'ARC' / (arc.name + '.md')).read_text())
+                    self.assertIn('Close-Pending', (arc / 'ARC' / (arc.name + '.md')).read_text(
+                        encoding='utf-8'))
                 if tool == 'arc_prereg':
                     self.assertTrue((arc / '.prereg').exists())
                 if tool == 'verify_gate':
-                    self.assertEqual((root / 'verified.txt').read_text(), 'checked')
+                    self.assertEqual((root / 'verified.txt').read_text(encoding='utf-8'), 'checked')
                 after = self.business(root)
                 with patch.object(server, '_run', side_effect=AssertionError('must not rerun')):
                     self.assertEqual(workspace.execute(root, task), result)
@@ -146,7 +149,8 @@ class ReviewedTools(unittest.TestCase):
         with self.fixture('arc_close') as (root, draft, arc):
             self.assertEqual(execute_reviewed(workspace, root, draft, host)['result']['exit_code'], 0)
             summary = next(arc.glob('_SUMMARY*'))
-            summary.write_text(summary.read_text().replace('(fill in)', 'synthetic concrete conclusion'))
+            summary.write_text(summary.read_text(encoding='utf-8').replace(
+                '(fill in)', 'synthetic concrete conclusion'), encoding='utf-8')
             task = workspace.prepare(root, 'arc_close', dict(arc_dir=str(arc), verdict='GO synthetic'),
                 review=dict(proposal={'intent': 'archive synthetic conclusion'},
                             requirements={'synthetic': 'fixture'}))['task_id']
@@ -161,7 +165,7 @@ class ReviewedTools(unittest.TestCase):
             archived = arc.parent / '_archive' / arc.name
             self.assertFalse(arc.exists())
             self.assertTrue(archived.exists())
-            self.assertIn('ARCHIVE_RECORD ', (archived / 'STATE.md').read_text())
+            self.assertIn('ARCHIVE_RECORD ', (archived / 'STATE.md').read_text(encoding='utf-8'))
             self.assertEqual(workspace.receipt(root, task)['state'], 'pending')
             retained = self.business(root)
             with patch.object(server, '_run', side_effect=AssertionError('do not repeat archive')):
@@ -184,7 +188,8 @@ class ReviewedTools(unittest.TestCase):
             if final_archive:
                 self.assertEqual(execute_reviewed(workspace, root, first, host)['result']['exit_code'], 0)
                 summary = next(arc.glob('_SUMMARY*'))
-                summary.write_text(summary.read_text().replace('(fill in)', 'synthetic concrete conclusion'))
+                summary.write_text(summary.read_text(encoding='utf-8').replace(
+                    '(fill in)', 'synthetic concrete conclusion'), encoding='utf-8')
                 retained_summary = summary.read_bytes()
                 first = workspace.prepare(root, 'arc_close', dict(arc_dir=str(arc), verdict='GO synthetic'),
                     review=dict(proposal={'intent': 'archive synthetic conclusion'},
@@ -252,7 +257,8 @@ print(json.dumps(execute_reviewed(workspace, sys.argv[1], sys.argv[2], host)))
                     self.assertTrue(sealed_summary.startswith(
                         retained_summary.replace(b'Arc close draft', b'Arc closed') + b'\n- **Closed**: '))
                     self.assertEqual(sealed_summary.count(b'\n- **Closed**: '), 1)
-                    self.assertEqual((archived / 'STATE.md').read_text().count('ARCHIVE_RECORD '), 1)
+                    self.assertEqual((archived / 'STATE.md').read_text(
+                        encoding='utf-8').count('ARCHIVE_RECORD '), 1)
                     after = self.business(root)
                     with patch.object(server, '_run', side_effect=AssertionError('must not repeat archive')):
                         for task, original in zip((first, second), results):

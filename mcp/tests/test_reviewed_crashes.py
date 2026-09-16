@@ -132,11 +132,12 @@ class ReviewedCrashes(unittest.TestCase):
         scripts = Path(self.tmp.name).resolve() / 'scripts'
         shutil.copytree(server.BIN, scripts)
         close = scripts / 'arc-close'
-        original = close.read_text()
+        original = close.read_text(encoding='utf-8')
         checkpoints = [line for line in original.splitlines(keepends=True) if marker in line]
         self.assertEqual(len(checkpoints), 1)
         checkpoint = checkpoints[0]
-        close.write_text(original.replace(checkpoint, checkpoint + 'kill -KILL "$$"\n'))
+        close.write_text(original.replace(checkpoint, checkpoint + 'kill -KILL "$$"\n'),
+                         encoding='utf-8')
         opened = self.child(self.prepare('arc_open', slug='synthetic', arcs_dir='arcs'), 'run')
         self.assertEqual(json.loads(opened.stdout)['result']['exit_code'], 0)
         arc = next((self.root / 'arcs').glob('*_synthetic'))
@@ -144,7 +145,8 @@ class ReviewedCrashes(unittest.TestCase):
         draft = self.child(self.prepare('arc_close', **args), 'run')
         self.assertEqual(json.loads(draft.stdout)['result']['exit_code'], 0)
         summary = next(arc.glob('_SUMMARY*'))
-        summary.write_text(summary.read_text().replace('(fill in)', 'synthetic concrete conclusion'))
+        summary.write_text(summary.read_text(encoding='utf-8').replace(
+            '(fill in)', 'synthetic concrete conclusion'), encoding='utf-8')
         task = self.prepare('arc_close', **args)
         interrupted = self.child(task, 'run', scripts)
         self.assertEqual(interrupted.returncode, 0, interrupted.stdout + interrupted.stderr)
@@ -153,10 +155,12 @@ class ReviewedCrashes(unittest.TestCase):
         self.assertFalse(arc.exists())
         self.assertTrue(archived.exists())
         self.assertTrue((archived / '.close.lock').is_dir())
-        thread = (archived / 'ARC' / (arc.name + '.md')).read_text()
+        thread = (archived / 'ARC' / (arc.name + '.md')).read_text(encoding='utf-8')
         self.assertIn('status: "Closed"' if closed else 'Close-Pending', thread)
-        self.assertEqual('ARCHIVE_RECORD ' in (archived / 'STATE.md').read_text(), recorded)
-        self.assertEqual('Arc closed' in (archived / summary.name).read_text(), closed)
+        self.assertEqual('ARCHIVE_RECORD ' in (archived / 'STATE.md').read_text(
+            encoding='utf-8'), recorded)
+        self.assertEqual('Arc closed' in (archived / summary.name).read_text(
+            encoding='utf-8'), closed)
         self.assertEqual(workspace.receipt(self.root, task)['state'], 'pending')
         receipt = self.root / '.yeoul-mcp' / (hashlib.sha256(task.encode()).hexdigest() + '.json')
         retained_receipt = receipt.read_bytes()
