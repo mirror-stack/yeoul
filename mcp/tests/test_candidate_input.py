@@ -73,6 +73,27 @@ class CandidateInput(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'changed while reading'):
                 collect_candidate(self.root, 'proposal.json')
 
+    def test_root_path_replacement_during_read_is_refused(self):
+        trusted = self.root/'trusted'
+        trusted.mkdir()
+        candidate = trusted/'proposal.json'
+        candidate.write_bytes(b'original')
+        original = os.read
+        changed = False
+
+        def replace_root(fd, size):
+            nonlocal changed
+            data = original(fd, size)
+            if not changed:
+                trusted.rename(self.root/'opened-root')
+                trusted.mkdir()
+                (trusted/'proposal.json').write_bytes(b'replacement')
+                changed = True
+            return data
+        with patch('yeoul_mcp.candidate_input.os.read', replace_root):
+            with self.assertRaisesRegex(ValueError, 'root changed while reading'):
+                collect_candidate(trusted, 'proposal.json')
+
     def test_deadline_and_bad_limit_refused(self):
         with patch('yeoul_mcp.candidate_input.time.monotonic', side_effect=[0, 10]):
             with self.assertRaisesRegex(ValueError, 'deadline'):
