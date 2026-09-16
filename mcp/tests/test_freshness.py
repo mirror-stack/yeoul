@@ -23,7 +23,9 @@ class Freshness(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='yeoul freshness ')
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name) / 'workspace'
+        # Windows runners may expose TEMP through an 8.3 alias. Keep the fixture
+        # on the same canonical spelling that the managed boundary records.
+        self.root = Path(self.tmp.name).resolve() / 'workspace'
         env = {k: v for k, v in os.environ.items() if not k.startswith('YEOUL_')}
         self.environment = patch.dict(os.environ, env, clear=True)
         self.environment.start()

@@ -22,7 +22,10 @@ def change(text, *, kind='task', key='import', status='open', evidence='', reope
 class Sessions(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.path=Path(self.temp.name)/'session.sqlite'
+        # macOS reports temporary paths under /var, which is a system symlink.
+        # Resolve this trusted fixture before testing the product's link refusal.
+        self.root=Path(self.temp.name).resolve()
+        self.path=self.root/'session.sqlite'
         self.s=SessionContext.create(self.path)
 
     def tearDown(self):
@@ -242,7 +245,7 @@ class Sessions(unittest.TestCase):
         self.assertFalse(json.loads(packet['model_input'])['search']['complete'])
 
     def test_new_journal_persists_event_limit_and_refuses_before_write(self):
-        path=Path(self.temp.name)/'limited.sqlite'
+        path=self.root/'limited.sqlite'
         with SessionContext.create(path,max_events=1,max_payload_bytes=4096) as limited:
             limited.record('one',origin='user',expected_revision=0)
             before=limited.journal_usage()
@@ -256,7 +259,7 @@ class Sessions(unittest.TestCase):
                 reopened.record('retry',origin='user',expected_revision=1)
 
     def test_journal_byte_limit_counts_utf8_payload_and_rolls_back(self):
-        path=Path(self.temp.name)/'bytes.sqlite'
+        path=self.root/'bytes.sqlite'
         with SessionContext.create(path,max_events=100,max_payload_bytes=1024) as limited:
             event=dict(type='turn',text='\uac00'*300,origin='trace')
             limited.record(event['text'],origin='trace',expected_revision=0)
@@ -268,7 +271,7 @@ class Sessions(unittest.TestCase):
             self.assertEqual(limited.journal_usage(),usage)
 
     def test_main_database_limit_is_persisted_and_applied(self):
-        path=Path(self.temp.name)/'database-limit.sqlite'
+        path=self.root/'database-limit.sqlite'
         maximum=1024*1024
         with SessionContext.create(path,max_events=100,max_payload_bytes=65536,
                                    max_database_bytes=maximum) as limited:
@@ -282,7 +285,7 @@ class Sessions(unittest.TestCase):
             self.assertEqual(reopened.journal_usage(),usage)
 
     def test_main_database_limit_refuses_atomically_on_python_without_error_constant(self):
-        path=Path(self.temp.name)/'full-database.sqlite'
+        path=self.root/'full-database.sqlite'
         maximum=1024*1024
         with SessionContext.create(path,max_events=10,max_payload_bytes=maximum,
                                    max_database_bytes=maximum) as limited:
@@ -302,14 +305,14 @@ class Sessions(unittest.TestCase):
             self.assertTrue(refused,'main-database cap was not reached')
 
     def test_database_limit_validation_does_not_replace_existing_file(self):
-        path=Path(self.temp.name)/'invalid-database-limit.sqlite'
+        path=self.root/'invalid-database-limit.sqlite'
         with self.assertRaisesRegex(ValueError,'database limit'):
             SessionContext.create(path,max_payload_bytes=2*1024*1024,
                                   max_database_bytes=1024*1024)
         self.assertFalse(path.exists())
 
     def test_create_failure_does_not_strand_exclusive_placeholder(self):
-        path=Path(self.temp.name)/'failed-create.sqlite'
+        path=self.root/'failed-create.sqlite'
         with patch('yeoul_mcp.session_context.sqlite3.connect',
                    side_effect=__import__('sqlite3').OperationalError('injected open failure')):
             with self.assertRaisesRegex(__import__('sqlite3').OperationalError,
@@ -320,7 +323,7 @@ class Sessions(unittest.TestCase):
         recovered.close()
 
     def test_main_database_cap_refuses_unbounded_wal_mode(self):
-        path=Path(self.temp.name)/'wal.sqlite'
+        path=self.root/'wal.sqlite'
         limited=SessionContext.create(path);limited.close()
         import sqlite3
         db=sqlite3.connect(path)
@@ -346,7 +349,7 @@ class Sessions(unittest.TestCase):
         self.assertEqual(self.s.journal_usage(),before)
 
     def test_create_checks_free_space_floor_before_creating_file(self):
-        path=Path(self.temp.name)/'no-space.sqlite'
+        path=self.root/'no-space.sqlite'
         with patch.object(SessionContext,'_free_bytes',return_value=0):
             with self.assertRaisesRegex(ValueError,'free-space floor'):
                 SessionContext.create(path,min_free_bytes=1)
@@ -431,7 +434,7 @@ class Sessions(unittest.TestCase):
             self.s.verify_full()
 
     def test_journal_usage_counter_mismatch_refuses_reopen(self):
-        path=Path(self.temp.name)/'counter.sqlite'
+        path=self.root/'counter.sqlite'
         limited=SessionContext.create(path,max_events=2,max_payload_bytes=2048)
         limited.record('one',origin='trace',expected_revision=0);limited.close()
         import sqlite3
@@ -440,7 +443,7 @@ class Sessions(unittest.TestCase):
             SessionContext(path)
 
     def test_two_connections_share_persisted_quota(self):
-        path=Path(self.temp.name)/'shared-limit.sqlite'
+        path=self.root/'shared-limit.sqlite'
         first=SessionContext.create(path,max_events=2,max_payload_bytes=4096)
         with first, SessionContext(path) as second:
             first.record('one',origin='trace',expected_revision=0)
@@ -451,7 +454,7 @@ class Sessions(unittest.TestCase):
             self.assertEqual(second.journal_usage()['event_count'],2)
 
     def test_legacy_version_one_database_remains_readable_but_reports_unbounded(self):
-        path=Path(self.temp.name)/'legacy.sqlite'
+        path=self.root/'legacy.sqlite'
         import sqlite3
         db=sqlite3.connect(path)
         db.executescript('CREATE TABLE meta(version INTEGER NOT NULL,session TEXT NOT NULL);'
@@ -465,7 +468,7 @@ class Sessions(unittest.TestCase):
             self.assertFalse(legacy.journal_usage()['bounded'])
 
     def test_first_bounded_schema_remains_readable_without_database_cap(self):
-        path=Path(self.temp.name)/'old-bounded.sqlite'
+        path=self.root/'old-bounded.sqlite'
         import sqlite3
         db=sqlite3.connect(path)
         db.executescript('CREATE TABLE meta(version INTEGER NOT NULL,session TEXT NOT NULL);'

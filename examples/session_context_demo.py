@@ -21,7 +21,7 @@ def reviewed(text, *, kind, key, status, evidence=''):
 
 def main():
     with tempfile.TemporaryDirectory(prefix='yeoul-session-demo-') as folder:
-        with SessionContext.create(Path(folder) / 'session.sqlite') as session:
+        with SessionContext.create(Path(folder).resolve() / 'session.sqlite') as session:
             goal = 'Review the importer schema before implementation.'
             turn = session.record(goal, origin='user', expected_revision=0)
             session.review(turn, [reviewed(goal, kind='goal', key='main', status='active')],

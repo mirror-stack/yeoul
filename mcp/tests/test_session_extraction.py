@@ -25,7 +25,8 @@ def changes():
 class Extraction(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
-        self.s=SessionContext.create(Path(self.tmp.name)/'session.db')
+        self.root=Path(self.tmp.name).resolve()
+        self.s=SessionContext.create(self.root/'session.db')
         self.turn=self.s.record(TEXT,origin='user',expected_revision=0)
         self.reviewers={'meaning':('synthetic-reviewer',lambda *args:dict(status='pass',evidence_ref='fixture:review'))}
 
@@ -64,7 +65,7 @@ class Extraction(unittest.TestCase):
                     audit.db.execute('SELECT payload FROM log ORDER BY seq')]
 
     def test_audited_intent_exists_before_worker_and_preserves_reply(self):
-        path = Path(self.tmp.name) / 'attempt.db'
+        path = self.root / 'attempt.db'
         def worker(wire):
             events = self.audit_events(path)
             self.assertEqual([e['type'] for e in events], ['intent'])
@@ -84,7 +85,7 @@ class Extraction(unittest.TestCase):
         def worker(wire):
             calls.append(wire)
             raise RuntimeError('private worker diagnostic')
-        path = Path(self.tmp.name) / 'failed.db'
+        path = self.root / 'failed.db'
         result = extract_changes(self.s, self.turn, worker, audit_path=path)
         self.assertEqual(len(calls), 1)
         self.assertEqual(result['reason'], 'extractor_failed')
@@ -94,7 +95,7 @@ class Extraction(unittest.TestCase):
         self.assertIsNone(events[-1]['result']['output_bytes'])
 
     def test_interruption_leaves_intent_and_reuse_is_refused(self):
-        path = Path(self.tmp.name) / 'interrupted.db'
+        path = self.root / 'interrupted.db'
         def interrupted(wire):
             raise KeyboardInterrupt()
         with self.assertRaises(KeyboardInterrupt):
@@ -106,7 +107,7 @@ class Extraction(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'posix', 'requires POSIX process kill semantics')
     def test_process_kill_after_intent_preserves_pending_and_refuses_replay(self):
-        path = Path(self.tmp.name) / 'killed.db'
+        path = self.root / 'killed.db'
         package_root = str(Path(sys.modules[SessionContext.__module__].__file__).resolve().parents[1])
         code = '''
 import sys,time
@@ -147,7 +148,7 @@ with SessionContext(sys.argv[2]) as session:
     def test_audited_malformed_and_oversized_responses(self):
         for index, raw in enumerate((b'\xff', b'x' * 65537, {'not': 'bytes'})):
             with self.subTest(index=index):
-                path = Path(self.tmp.name) / f'invalid-{index}.db'
+                path = self.root / f'invalid-{index}.db'
                 result = extract_changes(self.s, self.turn, lambda _: raw, audit_path=path)
                 self.assertEqual(result['state'], 'needs_review')
                 response = self.audit_events(path)[1]
@@ -170,7 +171,7 @@ with SessionContext(sys.argv[2]) as session:
             def worker(wire):
                 calls.append(wire)
                 return self.worker(wire)
-            path = Path(self.tmp.name) / f'write-{fail_at}.db'
+            path = self.root / f'write-{fail_at}.db'
             with patch.object(SessionContext, 'record', record):
                 with self.assertRaises(OSError):
                     extract_changes(self.s, self.turn, worker, audit_path=path)
@@ -203,7 +204,7 @@ with SessionContext(sys.argv[2]) as session:
         self.assertEqual(self.s.revision,2)
 
     def test_unique_exact_quote_alignment_keeps_raw_and_requires_review(self):
-        path=Path(self.tmp.name)/'aligned.db'
+        path=self.root/'aligned.db'
         raw_replies=[]
         def worker(raw):
             value=json.loads(self.worker(raw))

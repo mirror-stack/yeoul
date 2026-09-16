@@ -18,7 +18,7 @@ from yeoul_mcp.worker_transport import CommandWorker
 class Runner(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.session = SessionContext.create(self.root / 'state.sqlite')
         self.session.record('old source with needed detail', origin='trace', expected_revision=0)
 
