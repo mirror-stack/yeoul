@@ -205,7 +205,7 @@ with _snapshot_path(b'synthetic private snapshot') as path:
         task = host.prepare('synthetic', 'yeoul_new', dict(name='synthetic', no_arc=True))
         (root/'ledger.txt').write_text(sealed([self.registration,
             dict(_type='retraction', claim_id='synthetic', reason='synthetic withdrawn')]),
-            encoding='utf-8')
+            encoding='utf-8', newline='\n')
         approvals = []
         def approve(request):
             approvals.append(request)

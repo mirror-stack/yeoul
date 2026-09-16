@@ -137,7 +137,7 @@ class ReviewedCrashes(unittest.TestCase):
         self.assertEqual(len(checkpoints), 1)
         checkpoint = checkpoints[0]
         close.write_text(original.replace(checkpoint, checkpoint + 'kill -KILL "$$"\n'),
-                         encoding='utf-8')
+                         encoding='utf-8', newline='\n')
         opened = self.child(self.prepare('arc_open', slug='synthetic', arcs_dir='arcs'), 'run')
         self.assertEqual(json.loads(opened.stdout)['result']['exit_code'], 0)
         arc = next((self.root / 'arcs').glob('*_synthetic'))
@@ -146,7 +146,7 @@ class ReviewedCrashes(unittest.TestCase):
         self.assertEqual(json.loads(draft.stdout)['result']['exit_code'], 0)
         summary = next(arc.glob('_SUMMARY*'))
         summary.write_text(summary.read_text(encoding='utf-8').replace(
-            '(fill in)', 'synthetic concrete conclusion'), encoding='utf-8')
+            '(fill in)', 'synthetic concrete conclusion'), encoding='utf-8', newline='\n')
         task = self.prepare('arc_close', **args)
         interrupted = self.child(task, 'run', scripts)
         self.assertEqual(interrupted.returncode, 0, interrupted.stdout + interrupted.stderr)

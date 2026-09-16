@@ -44,7 +44,7 @@ class Surface(unittest.TestCase):
                                       ('- [ ] malformed. verify:\n', 3),
                                       ('- [ ] good. verify: `true`\n', 0)]:
                 with self.subTest(content=content), patch.dict(os.environ, {'YEOUL_PROJECTS':str(projects)}):
-                    (dev/'TODO.md').write_text(content, encoding='utf-8')
+                    (dev/'TODO.md').write_text(content, encoding='utf-8', newline='\n')
                     result = server.ralph_gate_check('p', workspace=tmp)
                     self.assertEqual(result['exit_code'], expected, result)
                     self.assertFalse((dev/'ralph_log').exists(), 'dry check must not create loop state')
@@ -70,7 +70,7 @@ class Surface(unittest.TestCase):
             self.assertEqual(read_verified(claims), mirror_verified(claims)[0])
             summary = root/'result.md'
             summary.write_text('Measured d = 0.05; preregistered effect was not observed.',
-                               encoding='utf-8')
+                               encoding='utf-8', newline='\n')
             for status in ('pass', 'fail', 'inconclusive'):
                 with self.subTest(status=status):
                     actions = root/(status+'.jsonl')

@@ -45,7 +45,7 @@ class ReviewedTools(unittest.TestCase):
                 workspace.setup(root, 'develop', 'prepared_only')
                 todo = root / 'TODO.md'
                 todo.write_text('- [x] synthetic check. verify: `printf checked > verified.txt`\n',
-                                encoding='utf-8')
+                                encoding='utf-8', newline='\n')
                 workspace.approve(root, todo)
                 with workspace.activated(root):
                     arc = None
@@ -62,14 +62,14 @@ class ReviewedTools(unittest.TestCase):
                                     kill_condition='observed errors exceed 3 over 10 trials')
                         body['seal'] = hashlib.sha256(json.dumps(body, sort_keys=True,
                             ensure_ascii=False, allow_nan=False).encode()).hexdigest()
-                        ledger.write_text(json.dumps(body) + '\n', encoding='utf-8')
+                        ledger.write_text(json.dumps(body) + '\n', encoding='utf-8', newline='\n')
                         (arc / '0001_spec.md').write_text('\n'.join(
                             '- **' + label + '**: ' + value for label, value in (
                                 ('Goal', 'Measure synthetic parser errors across ten fixed input cases'),
                                 ('Success condition', 'All ten fixed input cases produce expected parsed fields'),
                                 ('Kill-condition', 'Observed errors exceed three across ten independent trials'),
                                 ('Constraints', 'Use synthetic records only and preserve source input files'))),
-                            encoding='utf-8')
+                            encoding='utf-8', newline='\n')
                     args = {
                         'yeoul_new': dict(name='new', no_arc=True),
                         'build_handoff': dict(name='base'),
@@ -150,7 +150,7 @@ class ReviewedTools(unittest.TestCase):
             self.assertEqual(execute_reviewed(workspace, root, draft, host)['result']['exit_code'], 0)
             summary = next(arc.glob('_SUMMARY*'))
             summary.write_text(summary.read_text(encoding='utf-8').replace(
-                '(fill in)', 'synthetic concrete conclusion'), encoding='utf-8')
+                '(fill in)', 'synthetic concrete conclusion'), encoding='utf-8', newline='\n')
             task = workspace.prepare(root, 'arc_close', dict(arc_dir=str(arc), verdict='GO synthetic'),
                 review=dict(proposal={'intent': 'archive synthetic conclusion'},
                             requirements={'synthetic': 'fixture'}))['task_id']
@@ -189,7 +189,7 @@ class ReviewedTools(unittest.TestCase):
                 self.assertEqual(execute_reviewed(workspace, root, first, host)['result']['exit_code'], 0)
                 summary = next(arc.glob('_SUMMARY*'))
                 summary.write_text(summary.read_text(encoding='utf-8').replace(
-                    '(fill in)', 'synthetic concrete conclusion'), encoding='utf-8')
+                    '(fill in)', 'synthetic concrete conclusion'), encoding='utf-8', newline='\n')
                 retained_summary = summary.read_bytes()
                 first = workspace.prepare(root, 'arc_close', dict(arc_dir=str(arc), verdict='GO synthetic'),
                     review=dict(proposal={'intent': 'archive synthetic conclusion'},
